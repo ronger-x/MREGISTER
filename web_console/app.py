@@ -196,6 +196,8 @@ UI_TRANSLATIONS = {
         "gptmail_optional_hint": "GPTMail 的 Base URL、邮箱前缀、邮箱域名都有默认值，可直接留空不填写。",
         "credentials_saved_title": "已保存凭据",
         "credentials_saved_desc": "支持删除、查看备注、设为默认。",
+        "credential_exhausted_badge": "已耗尽",
+        "credential_exhausted_reason": "此 GPTMail 凭据已标记为耗尽，系统会自动跳过并切换其他可用凭据。",
         "field_name": "名称",
         "field_kind": "类型",
         "field_api_key": "API Key",
@@ -245,6 +247,8 @@ UI_TRANSLATIONS = {
         "created_task_opened": "任务 #{id} 已创建，已打开任务中心详情。",
         "section_task_detail": "任务详情",
         "task_detail_note": "关闭网页不会停止任务，控制台输出会保存到任务目录，重新打开时会继续显示。",
+        "task_failure_reason": "失败原因",
+        "task_gptmail_quota_exhausted": "因 GPTMail 配额或调用次数耗尽，任务已停止重试。",
         "task_list_title": "任务列表",
         "task_list_desc": "左侧筛选后只显示对应状态的任务。",
         "task_filter_status": "状态筛选",
@@ -559,6 +563,8 @@ UI_TRANSLATIONS = {
         "gptmail_optional_hint": "For GPTMail, Base URL, email prefix, and email domain all have defaults, so you can leave them blank.",
         "credentials_saved_title": "Saved credentials",
         "credentials_saved_desc": "Delete, review notes, and set defaults here.",
+        "credential_exhausted_badge": "exhausted",
+        "credential_exhausted_reason": "This GPTMail credential is marked exhausted and will be skipped automatically.",
         "field_name": "Name",
         "field_kind": "Type",
         "field_api_key": "API Key",
@@ -608,6 +614,8 @@ UI_TRANSLATIONS = {
         "created_task_opened": "Task #{id} was created and opened in Task Center.",
         "section_task_detail": "Task Detail",
         "task_detail_note": "Closing the page does not stop a task. Console output is saved in the task directory and will be shown again when you reopen it.",
+        "task_failure_reason": "Failure reason",
+        "task_gptmail_quota_exhausted": "The task stopped retrying because GPTMail quota or call usage was exhausted.",
         "loading": "Loading...",
         "success_accounts_page_desc": "Browse extracted successful accounts across all tasks with search, pagination, and CPAMC retry actions.",
         "search_success_accounts": "Search success accounts",
@@ -956,6 +964,9 @@ def init_db() -> None:
                 name TEXT NOT NULL UNIQUE,
                 kind TEXT NOT NULL,
                 api_key TEXT NOT NULL,
+                is_exhausted INTEGER NOT NULL DEFAULT 0,
+                exhausted_at TEXT,
+                exhausted_reason TEXT,
                 base_url TEXT,
                 prefix TEXT,
                 domain TEXT,
@@ -1052,6 +1063,15 @@ def init_db() -> None:
                 "schedule_id": "INTEGER",
                 "auto_delete_at": "TEXT",
                 "first_started_at": "TEXT",
+            },
+        )
+        ensure_columns(
+            conn,
+            "credentials",
+            {
+                "is_exhausted": "INTEGER NOT NULL DEFAULT 0",
+                "exhausted_at": "TEXT",
+                "exhausted_reason": "TEXT",
             },
         )
         ensure_columns(
@@ -1633,6 +1653,36 @@ def get_credential(credential_id: int) -> sqlite3.Row:
     return row
 
 
+def credential_is_exhausted(credential: sqlite3.Row | dict[str, Any]) -> bool:
+    return bool(int(credential["is_exhausted"] or 0))
+
+
+def get_available_gptmail_credential(*, exclude_ids: set[int] | None = None) -> sqlite3.Row | None:
+    params: list[Any] = []
+    query = "SELECT * FROM credentials WHERE kind = 'gptmail' AND COALESCE(is_exhausted, 0) = 0"
+    if exclude_ids:
+        placeholders = ", ".join("?" for _ in exclude_ids)
+        query += f" AND id NOT IN ({placeholders})"
+        params.extend(sorted(exclude_ids))
+    query += " ORDER BY id ASC LIMIT 1"
+    return fetch_one(query, tuple(params))
+
+
+def mark_credential_exhausted(credential: sqlite3.Row | dict[str, Any], reason: str) -> None:
+    timestamp = now_iso()
+    execute_no_return(
+        """
+        UPDATE credentials
+        SET is_exhausted = 1,
+            exhausted_at = ?,
+            exhausted_reason = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (timestamp, reason, timestamp, int(credential["id"])),
+    )
+
+
 def get_proxy(proxy_id: int) -> sqlite3.Row:
     row = fetch_one("SELECT * FROM proxies WHERE id = ?", (proxy_id,))
     if row is None:
@@ -1821,10 +1871,19 @@ def resolve_required_credential(kind: str, credential_id: int | None) -> sqlite3
     if selected_id is None:
         selected_id = defaults["default_gptmail_credential_id"] if kind == "gptmail" else defaults["default_yescaptcha_credential_id"]
     if selected_id is None:
+        if kind == "gptmail":
+            fallback = get_available_gptmail_credential()
+            if fallback is not None:
+                return fallback
         raise HTTPException(status_code=400, detail=f"No default {kind} credential is configured")
     credential = get_credential(int(selected_id))
     if credential["kind"] != kind:
         raise HTTPException(status_code=400, detail=f"Credential {selected_id} is not of type {kind}")
+    if kind == "gptmail" and credential_is_exhausted(credential):
+        fallback = get_available_gptmail_credential(exclude_ids={int(credential["id"])})
+        if fallback is not None:
+            return fallback
+        raise HTTPException(status_code=400, detail="No available GPTMail credential remains")
     return credential
 
 
@@ -2577,6 +2636,9 @@ class TaskSupervisor:
             return len(self._processes)
 
     def _start_task(self, task: sqlite3.Row) -> None:
+        task = self._prepare_task_email_credential(task)
+        if task is None:
+            return
         paths = task_paths(task)
         task_dir = paths["task_dir"]
         task_dir.mkdir(parents=True, exist_ok=True)
@@ -2747,6 +2809,29 @@ class TaskSupervisor:
         with self._lock:
             self._processes[int(task["id"])] = ManagedProcess(task_id=int(task["id"]), process=process, log_handle=log_handle)
 
+    def _prepare_task_email_credential(self, task: sqlite3.Row) -> sqlite3.Row | None:
+        credential_id = task["email_credential_id"]
+        if not credential_id:
+            return task
+        credential = get_credential(int(credential_id))
+        if credential["kind"] != "gptmail" or not credential_is_exhausted(credential):
+            return task
+        replacement = get_available_gptmail_credential(exclude_ids={int(credential["id"])})
+        if replacement is None:
+            message = "No available GPTMail credential remains after the current credential was marked exhausted."
+            append_task_console(task, message)
+            execute_no_return(
+                "UPDATE tasks SET status = 'failed', finished_at = ?, last_error = ? WHERE id = ?",
+                (now_iso(), message, int(task["id"])),
+            )
+            return None
+        append_task_console(
+            task,
+            f"GPTMail credential '{credential['name']}' is exhausted. Switched to '{replacement['name']}' before launch.",
+        )
+        execute_no_return("UPDATE tasks SET email_credential_id = ?, last_error = NULL WHERE id = ?", (int(replacement["id"]), int(task["id"])))
+        return get_task(int(task["id"]))
+
     def _finalize_finished(self) -> None:
         with self._lock:
             items = list(self._processes.items())
@@ -2826,7 +2911,25 @@ class TaskSupervisor:
         results_count = count_result_lines(row)
         quantity = int(row["quantity"])
         current_status = row["status"]
-        exit_error = None if exit_code == 0 else f"Task exited with code {exit_code}."
+        non_retry_reason = self._detect_non_retry_reason(row)
+        exit_error = None if exit_code == 0 else (non_retry_reason or f"Task exited with code {exit_code}.")
+        if results_count < quantity and non_retry_reason and self._rotate_exhausted_gptmail_credential(row, non_retry_reason):
+            append_task_console(
+                row,
+                f"Current successful results: {results_count}/{quantity}. Switched GPTMail credential and re-queued task.",
+            )
+            execute_no_return(
+                """
+                UPDATE tasks
+                SET status = 'queued',
+                    pid = NULL,
+                    exit_code = NULL,
+                    last_error = NULL
+                WHERE id = ?
+                """,
+                (task_id,),
+            )
+            return
         if self._should_retry_task(row, results_count):
             append_task_console(
                 row,
@@ -2878,10 +2981,64 @@ class TaskSupervisor:
             return False
         if int(task["quantity"]) <= results_count:
             return False
+        if TaskSupervisor._detect_non_retry_reason(task):
+            return False
         return str(task["platform"]) in ("chatgpt-register-v2", "chatgpt-register-v3")
 
+    @staticmethod
+    def _detect_non_retry_reason(task: sqlite3.Row) -> str | None:
+        console_text = read_tail(Path(task["console_path"]), limit=12000).lower()
+        if not console_text:
+            return None
+
+        hard_stop_markers = [
+            "gptmail api quota exhausted",
+            "gptmail usage limit reached",
+            "gptmail call limit reached",
+            "gptmail credits exhausted",
+            "gptmail balance exhausted",
+            "insufficient quota",
+            "quota exceeded",
+            "rate limit exceeded",
+            "too many requests",
+            "calls exhausted",
+            "usage exhausted",
+            "调用次数已用完",
+            "调用次数不足",
+            "额度已用完",
+            "配额已用完",
+            "余额不足",
+            "请求次数已用完",
+        ]
+        for marker in hard_stop_markers:
+            if marker in console_text:
+                return "GPTMail quota or call limit exhausted. Stopped automatic retries."
+        return None
+
+    def _rotate_exhausted_gptmail_credential(self, task: sqlite3.Row, reason: str) -> bool:
+        credential_id = task["email_credential_id"]
+        if not credential_id:
+            return False
+        credential = get_credential(int(credential_id))
+        if credential["kind"] != "gptmail":
+            return False
+        mark_credential_exhausted(credential, reason)
+        replacement = get_available_gptmail_credential(exclude_ids={int(credential["id"])})
+        if replacement is None:
+            append_task_console(
+                task,
+                f"Marked GPTMail credential '{credential['name']}' as exhausted. No replacement GPTMail credential is available.",
+            )
+            return False
+        execute_no_return("UPDATE tasks SET email_credential_id = ? WHERE id = ?", (int(replacement["id"]), int(task["id"])))
+        append_task_console(
+            task,
+            f"Marked GPTMail credential '{credential['name']}' as exhausted. Switched task to '{replacement['name']}'.",
+        )
+        return True
+
     def _maybe_auto_import_task(self, task: sqlite3.Row) -> None:
-        if str(task["status"]) != "completed":
+        if str(task["status"]) not in {"completed", "partial"}:
             return
         cpamc = get_cpamc_settings()
         if not (cpamc["auto_import_enabled"] or task_requests_cpamc_auto_import(task)):

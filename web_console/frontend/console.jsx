@@ -1326,8 +1326,9 @@ export function ConsoleApp() {
                   <article className="entity-card" key={item.id}>
                     <div>
                       <h3>{item.name}</h3>
-                      <p className="meta">{item.kind} | {tr('created_at', { value: item.created_at })}{isDefault ? ` | ${tr('default_badge')}` : ''}</p>
+                      <p className="meta">{item.kind} | {tr('created_at', { value: item.created_at })}{isDefault ? ` | ${tr('default_badge')}` : ''}{item.kind === 'gptmail' && Number(item.is_exhausted || 0) ? ` | ${tr('credential_exhausted_badge')}` : ''}</p>
                       <p className="notes">{item.notes || ''}</p>
+                      {item.kind === 'gptmail' && Number(item.is_exhausted || 0) ? <p className="notes">{item.exhausted_reason || tr('credential_exhausted_reason')}</p> : null}
                     </div>
                     <div className="entity-actions">
                       <BusyButton type="button" className="ghost-btn" onClick={() => handleCopyCredentialApiKey(item)}>
@@ -1934,6 +1935,12 @@ export function ConsoleApp() {
                     <span>{tr('task_run_duration')}</span>
                     <strong>{visibleTaskTiming.durationLabel}</strong>
                   </article>
+                  {visibleTask.last_error ? (
+                    <article className="task-summary-card">
+                      <span>{tr('task_failure_reason')}</span>
+                      <strong>{visibleTask.last_error === 'GPTMail quota or call limit exhausted. Stopped automatic retries.' ? tr('task_gptmail_quota_exhausted') : visibleTask.last_error}</strong>
+                    </article>
+                  ) : null}
                 </div>
                 <div className="task-actions">
                   <BusyButton type="button" busy={isBusy(`task-rerun-${visibleTask.id}`)} disabled={['queued', 'running', 'stopping'].includes(visibleTask.status)} onClick={() => handleRerunTask(visibleTask)}>{tr('rerun_task') || '重新执行'}</BusyButton>
