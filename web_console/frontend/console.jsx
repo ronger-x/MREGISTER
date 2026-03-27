@@ -1926,11 +1926,7 @@ export function ConsoleApp() {
                     </aside>
                   ) : null}
                 </div>
-                <div className="task-summary-grid">
-                  <article className="task-summary-card">
-                    <span>{tr('task_created_time')}</span>
-                    <strong>{formatTimestampLabel(visibleTask.created_at, tr)}</strong>
-                  </article>
+                <div className="task-summary-grid task-summary-grid--compact">
                   <article className="task-summary-card">
                     <span>{tr('task_started_time')}</span>
                     <strong>{formatTimestampLabel(visibleTask.started_at, tr)}</strong>
@@ -1940,7 +1936,7 @@ export function ConsoleApp() {
                     <strong>{formatTimestampLabel(visibleTask.finished_at, tr)}</strong>
                   </article>
                   <article className="task-summary-card task-summary-card--accent">
-                    <span>{tr('task_total_duration')}</span>
+                    <span>{tr('task_run_duration')}</span>
                     <strong>{getTaskDurationLabel(visibleTask, tr)}</strong>
                   </article>
                 </div>

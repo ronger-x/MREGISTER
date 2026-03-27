@@ -927,6 +927,10 @@ button.ghost-btn.is-busy::after,
   margin-top: 18px;
 }
 
+.task-summary-grid--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .task-summary-card {
   padding: 16px 18px;
   border-radius: 18px;
