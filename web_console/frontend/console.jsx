@@ -1061,6 +1061,121 @@ export function ConsoleApp() {
     await loadSuccessAccounts(successAccountsPage.page || 1);
   }
 
+  function dedupeSuccessAccountBatchTargets(items) {
+    const seen = new Set();
+    return (items || []).filter((item) => {
+      const taskId = Number(item?.task_id || item?.id || 0);
+      const email = String(item?.email || '').trim();
+      if (!taskId || !email) {
+        return false;
+      }
+      const key = `${taskId}:${email.toLowerCase()}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    }).map((item) => ({
+      task_id: Number(item.task_id || item.id),
+      email: String(item.email || '').trim(),
+      platform: String(item.platform || ''),
+    }));
+  }
+
+  function getBatchOAuthCandidatesFromTask(task) {
+    if (!task || !['chatgpt-register-v2', 'chatgpt-register-v3'].includes(task.platform)) {
+      return [];
+    }
+    const accounts = Array.isArray(task.success_accounts) ? task.success_accounts : [];
+    return dedupeSuccessAccountBatchTargets(accounts.map((account) => ({
+      task_id: task.id,
+      email: account.email,
+      platform: task.platform,
+    })));
+  }
+
+  function formatBatchOAuthResultMessage(result) {
+    const summary = tr('batch_regenerate_oauth_result_summary', {
+      total: result.total || 0,
+      succeeded: result.succeeded || 0,
+      failed: result.failed || 0,
+    });
+    const failures = (result.results || [])
+      .filter((item) => !item.ok)
+      .slice(0, 12)
+      .map((item) => `${item.email} (#${item.task_id}): ${item.error || 'unknown error'}`);
+    return failures.length
+      ? `${summary}\n\n${tr('batch_regenerate_oauth_result_failures', { value: failures.join('\n') })}`
+      : summary;
+  }
+
+  async function handleBatchRegenerateOAuth(items) {
+    const targets = dedupeSuccessAccountBatchTargets(items).filter((item) => ['chatgpt-register-v2', 'chatgpt-register-v3'].includes(item.platform || 'chatgpt-register-v2'));
+    if (!targets.length) {
+      setLoadError(tr('batch_regenerate_oauth_empty'));
+      return;
+    }
+    if (!await confirmAction({
+      title: tr('batch_regenerate_oauth_token'),
+      message: tr('batch_regenerate_oauth_prompt', { count: targets.length }),
+      confirmLabel: tr('batch_regenerate_oauth_token'),
+    })) {
+      return;
+    }
+    await withBusy('success-account-batch-regenerate-oauth', async () => {
+      const result = await api('/api/success-accounts/oauth/batch', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: targets.map((item) => ({ task_id: item.task_id, email: item.email })),
+        }),
+      });
+      await refreshState();
+      await loadSuccessAccounts(successAccountsPage.page || 1);
+      await openModal({
+        title: tr('batch_regenerate_oauth_result_title'),
+        message: formatBatchOAuthResultMessage(result),
+        confirmLabel: tr('modal_close'),
+      });
+    });
+  }
+
+  async function handleBatchRegenerateOAuthFromTask(task) {
+    await handleBatchRegenerateOAuth(getBatchOAuthCandidatesFromTask(task));
+  }
+
+  async function handleBatchRegenerateOAuthFromList() {
+    const supportedCount = Number(successAccountsPage.total || 0);
+    if (!supportedCount) {
+      setLoadError(tr('batch_regenerate_oauth_empty'));
+      return;
+    }
+    if (!await confirmAction({
+      title: tr('batch_regenerate_oauth_token'),
+      message: tr('batch_regenerate_oauth_prompt', { count: supportedCount }),
+      confirmLabel: tr('batch_regenerate_oauth_token'),
+    })) {
+      return;
+    }
+    await withBusy('success-account-batch-regenerate-oauth', async () => {
+      const scheduleId = successAccountsScheduleFilter === 'all' ? null : Number(successAccountsScheduleFilter);
+      const result = await api('/api/success-accounts/oauth/batch', {
+        method: 'POST',
+        body: JSON.stringify({
+          select_all_filtered: true,
+          search: successAccountsSearch,
+          schedule_id: Number.isFinite(scheduleId) ? scheduleId : null,
+        }),
+      });
+      await refreshState();
+      await loadSuccessAccounts(successAccountsPage.page || 1);
+      await openModal({
+        title: tr('batch_regenerate_oauth_result_title'),
+        message: formatBatchOAuthResultMessage(result),
+        confirmLabel: tr('modal_close'),
+      });
+    });
+  }
+
   async function handleBackfillSuccessAccounts() {
     await withBusy('task-backfill-success-accounts', async () => {
       const result = await api('/api/tasks/backfill-success-accounts', { method: 'POST' });
@@ -1664,7 +1779,10 @@ export function ConsoleApp() {
                 {statePayload.schedules.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </label>
-            <BusyButton type="button" busy={isBusy('task-backfill-success-accounts')} onClick={handleBackfillSuccessAccounts}>{tr('extract_history_success_accounts')}</BusyButton>
+            <div className="success-accounts-toolbar-actions">
+              <BusyButton type="button" className="ghost-btn" busy={isBusy('success-account-batch-regenerate-oauth')} onClick={handleBatchRegenerateOAuthFromList}>{tr('batch_regenerate_oauth_token')}</BusyButton>
+              <BusyButton type="button" busy={isBusy('task-backfill-success-accounts')} onClick={handleBackfillSuccessAccounts}>{tr('extract_history_success_accounts')}</BusyButton>
+            </div>
           </div>
           {successAccountsScheduleFilter !== 'all' ? <p className="field-tip">{tr('success_accounts_filter_hint', { value: scheduleFilterLabel })}</p> : null}
           <div className="success-account-table-wrap">
@@ -1968,7 +2086,12 @@ export function ConsoleApp() {
                   <pre id="task-console" ref={consoleRef}>{visibleTask.console_tail || tr('console_empty')}</pre>
                 </div>
                 <div className="console-box success-accounts-box">
-                  <div className="console-title">{tr('success_accounts_title')} ({visibleTask.success_accounts_count || 0})</div>
+                  <div className="console-title success-accounts-titlebar">
+                    <span>{tr('success_accounts_title')} ({visibleTask.success_accounts_count || 0})</span>
+                    {['chatgpt-register-v2', 'chatgpt-register-v3'].includes(visibleTask.platform) ? (
+                      <BusyButton type="button" className="ghost-btn" busy={isBusy('success-account-batch-regenerate-oauth')} onClick={() => handleBatchRegenerateOAuthFromTask(visibleTask)}>{tr('batch_regenerate_oauth_token')}</BusyButton>
+                    ) : null}
+                  </div>
                   {visibleTask.success_accounts_count ? (
                     <div className="success-account-list">
                       {visibleTask.success_accounts.map((account) => (
