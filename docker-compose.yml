@@ -5,7 +5,7 @@ services:
       dockerfile: web_console/Dockerfile
     container_name: mregister
     ports:
-      - "8000:8000"
+      - "8200:8000"
     environment:
       WEB_CONSOLE_MAX_CONCURRENT_TASKS: "2"
       WEB_CONSOLE_POLL_INTERVAL: "1.0"
