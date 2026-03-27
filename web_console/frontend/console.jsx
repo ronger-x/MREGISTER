@@ -20,7 +20,7 @@ import { BusyButton, Modal } from './ui.jsx';
 
 const SIDEBAR_LOGO_SRC = '/static/MAISHANhlogomini.png';
 const DOCS_LOG_IMAGE_SRC = '/static/docs-log-preview.jpg';
-const PROJECT_GITHUB_URL = 'https://github.com/Maishan-Inc/MREGISTER';
+const PROJECT_GITHUB_URL = 'https://github.com/ronger-x/MREGISTER';
 const SECTION_TITLE_KEYS = {
   dashboard: 'section_overview',
   credentials: 'section_credentials',

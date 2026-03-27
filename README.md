@@ -172,7 +172,7 @@ http://服务器IP:8000
 当前仓库已经带好了 `docker-compose.yml`，默认直接拉取 仓库：
 
 ```text
-https://github.com/Maishan-Inc/MREGISTER.git
+https://github.com/ronger-x/MREGISTER.git
 ```
 
 ### 1. 拉取镜像
