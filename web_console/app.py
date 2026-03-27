@@ -523,6 +523,7 @@ UI_TRANSLATIONS = {
         "success_accounts_empty_list": "No successful accounts match the current filter.",
         "retry_cpamc_import": "Retry CPAMC import",
         "retry_cpamc_import_done": "Retried CPAMC import for {email}.",
+        "oauth_not_supported": "OAuth is not supported for this platform",
         "task_list_title": "Task list",
         "task_list_desc": "The left list only shows tasks that match the selected status filter.",
         "task_filter_status": "Status filter",

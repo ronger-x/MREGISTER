@@ -1547,9 +1547,7 @@ export function ConsoleApp() {
                       </td>
                       <td>
                         <div className="success-account-actions">
-                          {['chatgpt-register-v2', 'chatgpt-register-v3'].includes(item.platform) ? (
-                            <BusyButton type="button" className="ghost-btn" busy={isBusy(`task-regenerate-oauth-${item.task_id}`)} onClick={() => handleRegenerateOAuthTokenFromList(item)}>{tr('regenerate_oauth_token')}</BusyButton>
-                          ) : null}
+                          <BusyButton type="button" className="ghost-btn" busy={isBusy(`task-regenerate-oauth-${item.task_id}`)} disabled={!['chatgpt-register-v2', 'chatgpt-register-v3'].includes(item.platform)} title={!['chatgpt-register-v2', 'chatgpt-register-v3'].includes(item.platform) ? tr('oauth_not_supported') : ''} onClick={() => handleRegenerateOAuthTokenFromList(item)}>{tr('regenerate_oauth_token')}</BusyButton>
                           <BusyButton type="button" className="ghost-btn" busy={isBusy(`success-account-cpamc-${item.task_id}-${item.email}`)} disabled={!item.token_json} onClick={() => handleRetrySuccessAccountCpamc(item)}>{tr('retry_cpamc_import')}</BusyButton>
                         </div>
                       </td>
