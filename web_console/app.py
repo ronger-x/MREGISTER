@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import zipfile
+from calendar import monthrange
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -206,6 +207,9 @@ UI_TRANSLATIONS = {
         "field_domain_placeholder": "留空使用默认邮箱域名",
         "field_notes": "备注",
         "save_credential": "保存凭据",
+        "copy_api_key": "复制 API Key",
+        "copy_api_key_done": "已复制 {name} 的 API Key",
+        "copy_api_key_failed": "复制 API Key 失败，请检查浏览器权限",
         "section_proxies": "代理管理",
         "proxies_create_title": "新增代理",
         "proxies_create_desc": "支持保存多个代理，并可指定为站点默认代理。",
@@ -290,10 +294,42 @@ UI_TRANSLATIONS = {
         "retry_cpamc_import_skipped": "{email} 的 JSON 已导入过，已跳过重复导入。",
         "section_schedules": "定时任务",
         "schedules_create_title": "新增定时任务",
-        "schedules_create_desc": "每天在固定时间自动创建一个独立任务。",
+        "schedules_create_desc": "支持每日、每周、每月三种可视化定时配置，并自动生成 cron 表达式。",
         "schedules_saved_title": "已保存定时任务",
         "schedules_saved_desc": "可以启用、停用或删除。",
+        "field_schedule_kind": "重复方式",
+        "schedule_kind_interval_minutes": "每隔分钟",
+        "schedule_kind_interval_hours": "每隔小时",
+        "schedule_kind_daily": "每天",
+        "schedule_kind_weekly": "每周",
+        "schedule_kind_monthly": "每月",
         "field_time_of_day": "执行时间",
+        "field_interval_minutes": "分钟间隔",
+        "field_interval_hours": "小时间隔",
+        "field_interval_minute_offset": "每小时第几分钟",
+        "field_schedule_weekdays": "执行星期",
+        "field_schedule_day": "每月日期",
+        "schedule_builder_hint": "使用可视化方式配置，系统会自动生成对应 cron 表达式。",
+        "schedule_generated_cron": "Cron 表达式",
+        "schedule_visual_summary": "执行规则：{value}",
+        "schedule_human_readable": "自然语言：{value}",
+        "schedule_human_interval_minutes": "每隔 {value} 分钟执行一次",
+        "schedule_human_interval_hours": "每隔 {hours} 小时，在每小时第 {minute} 分钟执行",
+        "schedule_human_weekly": "每周 {days} 的 {time} 执行",
+        "schedule_human_monthly": "每月 {day} 日 {time} 执行",
+        "schedule_human_daily": "每天 {time} 执行",
+        "schedule_next_run": "下次执行时间 {value}",
+        "schedule_last_run": "上次执行时间 {value}",
+        "schedule_time_unknown": "未触发",
+        "schedule_error_name_required": "请输入定时任务名称。",
+        "schedule_error_quantity_invalid": "任务数量必须在 1 到 100000 之间。",
+        "schedule_error_concurrency_invalid": "并发数必须在 1 到 64 之间。",
+        "schedule_error_time_required": "请选择有效的执行时间。",
+        "schedule_error_interval_minutes": "分钟间隔必须在 1 到 59 之间。",
+        "schedule_error_interval_hours": "小时间隔必须在 1 到 23 之间。",
+        "schedule_error_minute_offset": "每小时分钟偏移必须在 0 到 59 之间。",
+        "schedule_error_weekdays_required": "每周模式至少选择一天。",
+        "schedule_error_day_invalid": "每月日期必须在 1 到 31 之间。",
         "field_use_default_proxy": "使用默认代理",
         "field_schedule_auto_import_cpamc": "完成后自动导入到 CPAMC",
         "save_schedule": "保存定时任务",
@@ -427,6 +463,7 @@ UI_TRANSLATIONS = {
         "delete_schedule_confirm": "删除这个定时任务？",
         "delete_api_key_confirm": "删除这个 API Key？",
         "schedule_meta": "{platform} | 每日 {time} | 数量 {quantity} | {enabled}",
+        "schedule_meta_visual": "{platform} | {summary} | 数量 {quantity} | {enabled}",
         "schedule_proxy_on": "使用默认代理",
         "schedule_proxy_off": "不使用代理",
         "schedule_cpamc_auto_import_on": "完成后自动导入 CPAMC",
@@ -533,6 +570,9 @@ UI_TRANSLATIONS = {
         "field_domain_placeholder": "Leave blank to use the default email domain",
         "field_notes": "Notes",
         "save_credential": "Save credential",
+        "copy_api_key": "Copy API key",
+        "copy_api_key_done": "Copied API key for {name}",
+        "copy_api_key_failed": "Failed to copy API key. Check browser clipboard permissions.",
         "section_proxies": "Proxy Management",
         "proxies_create_title": "Add proxy",
         "proxies_create_desc": "Save multiple proxies and promote one as the site-wide default.",
@@ -617,10 +657,42 @@ UI_TRANSLATIONS = {
         "extract_history_success_accounts_done": "Scanned {updated} tasks and extracted successful accounts from {non_empty} tasks.",
         "section_schedules": "Schedules",
         "schedules_create_title": "Add schedule",
-        "schedules_create_desc": "Create an independent task automatically at the same time every day.",
+        "schedules_create_desc": "Use a visual builder for daily, weekly, or monthly schedules and generate the cron expression automatically.",
         "schedules_saved_title": "Saved schedules",
         "schedules_saved_desc": "Enable, disable, or delete scheduled tasks here.",
+        "field_schedule_kind": "Repeat",
+        "schedule_kind_interval_minutes": "Every N minutes",
+        "schedule_kind_interval_hours": "Every N hours",
+        "schedule_kind_daily": "Daily",
+        "schedule_kind_weekly": "Weekly",
+        "schedule_kind_monthly": "Monthly",
         "field_time_of_day": "Run time",
+        "field_interval_minutes": "Minute interval",
+        "field_interval_hours": "Hour interval",
+        "field_interval_minute_offset": "Minute of the hour",
+        "field_schedule_weekdays": "Weekdays",
+        "field_schedule_day": "Day of month",
+        "schedule_builder_hint": "Configure the schedule visually and let the console generate the cron expression for you.",
+        "schedule_generated_cron": "Cron expression",
+        "schedule_visual_summary": "Rule: {value}",
+        "schedule_human_readable": "Natural language: {value}",
+        "schedule_human_interval_minutes": "Run every {value} minute(s)",
+        "schedule_human_interval_hours": "Run every {hours} hour(s) at minute {minute}",
+        "schedule_human_weekly": "Run every {days} at {time}",
+        "schedule_human_monthly": "Run on day {day} of each month at {time}",
+        "schedule_human_daily": "Run every day at {time}",
+        "schedule_next_run": "Next run {value}",
+        "schedule_last_run": "Last run {value}",
+        "schedule_time_unknown": "Not triggered yet",
+        "schedule_error_name_required": "Enter a schedule name.",
+        "schedule_error_quantity_invalid": "Quantity must be between 1 and 100000.",
+        "schedule_error_concurrency_invalid": "Concurrency must be between 1 and 64.",
+        "schedule_error_time_required": "Choose a valid run time.",
+        "schedule_error_interval_minutes": "Minute interval must be between 1 and 59.",
+        "schedule_error_interval_hours": "Hour interval must be between 1 and 23.",
+        "schedule_error_minute_offset": "Minute offset must be between 0 and 59.",
+        "schedule_error_weekdays_required": "Select at least one weekday.",
+        "schedule_error_day_invalid": "Day of month must be between 1 and 31.",
         "field_use_default_proxy": "Use default proxy",
         "field_schedule_auto_import_cpamc": "Auto import to CPAMC after completion",
         "save_schedule": "Save schedule",
@@ -755,6 +827,7 @@ UI_TRANSLATIONS = {
         "delete_schedule_confirm": "Delete this schedule?",
         "delete_api_key_confirm": "Delete this API key?",
         "schedule_meta": "{platform} | Daily {time} | Quantity {quantity} | {enabled}",
+        "schedule_meta_visual": "{platform} | {summary} | Quantity {quantity} | {enabled}",
         "schedule_proxy_on": "Use default proxy",
         "schedule_proxy_off": "No proxy",
         "schedule_cpamc_auto_import_on": "Auto import to CPAMC after completion",
@@ -915,6 +988,7 @@ def init_db() -> None:
                 archive_path TEXT,
                 requested_config_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                first_started_at TEXT,
                 started_at TEXT,
                 finished_at TEXT,
                 exit_code INTEGER,
@@ -934,10 +1008,14 @@ def init_db() -> None:
                 quantity INTEGER NOT NULL,
                 concurrency INTEGER NOT NULL DEFAULT 1,
                 time_of_day TEXT NOT NULL,
+                cron_expression TEXT,
+                schedule_kind TEXT NOT NULL DEFAULT 'daily',
+                schedule_config_json TEXT NOT NULL DEFAULT '{}',
                 use_proxy INTEGER NOT NULL DEFAULT 0,
                 auto_import_cpamc INTEGER NOT NULL DEFAULT 0,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 last_run_date TEXT,
+                last_run_slot TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -973,6 +1051,7 @@ def init_db() -> None:
                 "source": "TEXT NOT NULL DEFAULT 'ui'",
                 "schedule_id": "INTEGER",
                 "auto_delete_at": "TEXT",
+                "first_started_at": "TEXT",
             },
         )
         ensure_columns(
@@ -980,6 +1059,10 @@ def init_db() -> None:
             "schedules",
             {
                 "auto_import_cpamc": "INTEGER NOT NULL DEFAULT 0",
+                "cron_expression": "TEXT",
+                "schedule_kind": "TEXT NOT NULL DEFAULT 'daily'",
+                "schedule_config_json": "TEXT NOT NULL DEFAULT '{}'",
+                "last_run_slot": "TEXT",
             },
         )
         conn.commit()
@@ -1518,7 +1601,20 @@ def get_proxies() -> list[dict[str, Any]]:
 
 
 def get_schedules() -> list[dict[str, Any]]:
-    return [row_to_dict(row) for row in fetch_all("SELECT * FROM schedules ORDER BY id DESC")]
+    items: list[dict[str, Any]] = []
+    for row in fetch_all("SELECT * FROM schedules ORDER BY id DESC"):
+        item = row_to_dict(row)
+        try:
+            item["schedule_config"] = json.loads(item.get("schedule_config_json") or "{}")
+        except Exception:
+            item["schedule_config"] = {}
+        item["cron_expression"] = str(item.get("cron_expression") or "")
+        item["schedule_kind"] = str(item.get("schedule_kind") or "daily")
+        item["schedule_label"] = describe_schedule(item)
+        item["last_run_at"] = get_schedule_last_run_at(item)
+        item["next_run_at"] = compute_next_run_at(item)
+        items.append(item)
+    return items
 
 
 def get_api_keys() -> list[dict[str, Any]]:
@@ -1549,6 +1645,167 @@ def get_schedule(schedule_id: int) -> sqlite3.Row:
     if row is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     return row
+
+
+def normalize_daily_schedule(time_of_day: str | None) -> tuple[str, dict[str, Any], str]:
+    value = str(time_of_day or "").strip()
+    if not value or len(value) != 5 or value[2] != ":":
+        raise HTTPException(status_code=400, detail="Daily schedules require a valid HH:MM time")
+    hour, minute = value.split(":", 1)
+    if not (hour.isdigit() and minute.isdigit()):
+        raise HTTPException(status_code=400, detail="Daily schedules require a valid HH:MM time")
+    hour_value = int(hour)
+    minute_value = int(minute)
+    if hour_value < 0 or hour_value > 23 or minute_value < 0 or minute_value > 59:
+        raise HTTPException(status_code=400, detail="Daily schedules require a valid HH:MM time")
+    normalized = f"{hour_value:02d}:{minute_value:02d}"
+    cron_expression = f"{minute_value} {hour_value} * * *"
+    return normalized, {"time_of_day": normalized}, cron_expression
+
+
+def normalize_visual_schedule(schedule_kind: str, schedule_config: dict[str, Any] | None, time_of_day: str | None) -> tuple[str, dict[str, Any], str]:
+    kind = str(schedule_kind or "daily").strip().lower()
+    config = dict(schedule_config or {})
+
+    if kind == "interval-minutes":
+        interval = int(config.get("interval_minutes", 5))
+        if interval < 1 or interval > 59:
+            raise HTTPException(status_code=400, detail="Minute interval must be between 1 and 59")
+        normalized_config = {"interval_minutes": interval}
+        return "--:--", normalized_config, f"*/{interval} * * * *"
+
+    if kind == "interval-hours":
+        interval = int(config.get("interval_hours", 1))
+        minute = int(config.get("minute", 0))
+        if interval < 1 or interval > 23:
+            raise HTTPException(status_code=400, detail="Hour interval must be between 1 and 23")
+        if minute < 0 or minute > 59:
+            raise HTTPException(status_code=400, detail="Schedule time is invalid")
+        normalized_config = {"interval_hours": interval, "minute": minute}
+        return f"--:{minute:02d}", normalized_config, f"{minute} */{interval} * * *"
+
+    if kind == "daily":
+        return normalize_daily_schedule(time_of_day or (schedule_config or {}).get("time_of_day"))
+
+    hour = int(config.get("hour", 0))
+    minute = int(config.get("minute", 0))
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise HTTPException(status_code=400, detail="Schedule time is invalid")
+    normalized_time = f"{hour:02d}:{minute:02d}"
+
+    if kind == "weekly":
+        weekdays = config.get("weekdays") or []
+        if not isinstance(weekdays, list) or not weekdays:
+            raise HTTPException(status_code=400, detail="Weekly schedules require at least one weekday")
+        weekday_values = sorted({int(value) for value in weekdays if str(value).isdigit() and 0 <= int(value) <= 6})
+        if not weekday_values:
+            raise HTTPException(status_code=400, detail="Weekly schedules require at least one weekday")
+        normalized_config = {"hour": hour, "minute": minute, "weekdays": weekday_values}
+        return normalized_time, normalized_config, f"{minute} {hour} * * {','.join(str(value) for value in weekday_values)}"
+
+    if kind == "monthly":
+        day = int(config.get("day", 1))
+        if day < 1 or day > 31:
+            raise HTTPException(status_code=400, detail="Monthly schedules require a valid day of month")
+        normalized_config = {"hour": hour, "minute": minute, "day": day}
+        return normalized_time, normalized_config, f"{minute} {hour} {day} * *"
+
+    raise HTTPException(status_code=400, detail="Unsupported schedule type")
+
+
+def cron_matches_now(cron_expression: str, moment: datetime) -> bool:
+    parts = str(cron_expression or "").split()
+    if len(parts) != 5:
+        return False
+    minute, hour, day, month, weekday = parts
+    cron_weekday = (moment.weekday() + 1) % 7
+    values = [moment.minute, moment.hour, moment.day, moment.month, cron_weekday]
+    ranges = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 6)]
+    for field, value, limits in zip(parts, values, ranges):
+        if not cron_field_matches(field, value, limits):
+            return False
+    if day != '*' and month != '*' and moment.day > monthrange(moment.year, moment.month)[1]:
+        return False
+    return True
+
+
+def cron_field_matches(field: str, value: int, limits: tuple[int, int]) -> bool:
+    field = field.strip()
+    if field == '*':
+        return True
+    for token in field.split(','):
+        token = token.strip()
+        if not token:
+            continue
+        if '/' in token:
+            base, step_text = token.split('/', 1)
+            if not step_text.isdigit() or int(step_text) <= 0:
+                return False
+            step = int(step_text)
+            if base == '*':
+                start, end = limits
+            elif '-' in base:
+                start_text, end_text = base.split('-', 1)
+                if not (start_text.isdigit() and end_text.isdigit()):
+                    return False
+                start, end = int(start_text), int(end_text)
+            else:
+                if not base.isdigit():
+                    return False
+                start = int(base)
+                end = limits[1]
+            if start <= value <= end and (value - start) % step == 0:
+                return True
+            continue
+        if '-' in token:
+            start_text, end_text = token.split('-', 1)
+            if start_text.isdigit() and end_text.isdigit() and int(start_text) <= value <= int(end_text):
+                return True
+            continue
+        if token.isdigit() and int(token) == value:
+            return True
+    return False
+
+
+def schedule_slot_key(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%d %H:%M")
+
+
+def describe_schedule(schedule: dict[str, Any]) -> str:
+    kind = str(schedule.get("schedule_kind") or "daily")
+    config = schedule.get("schedule_config") or {}
+    time_of_day = str(schedule.get("time_of_day") or config.get("time_of_day") or "")
+    if kind == "interval-minutes":
+        return f"Every {config.get('interval_minutes', 5)} min"
+    if kind == "interval-hours":
+        return f"Every {config.get('interval_hours', 1)} hour(s) at minute {int(config.get('minute', 0)):02d}"
+    if kind == "weekly":
+        weekday_names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        values = [weekday_names[int(item)] for item in config.get("weekdays", []) if 0 <= int(item) <= 6]
+        return f"Weekly · {', '.join(values)} · {time_of_day}" if values else f"Weekly · {time_of_day}"
+    if kind == "monthly":
+        return f"Monthly · Day {config.get('day', 1)} · {time_of_day}"
+    return f"Daily · {time_of_day}"
+
+
+def compute_next_run_at(schedule: dict[str, Any], *, after: datetime | None = None) -> str:
+    cron_expression = str(schedule.get("cron_expression") or "").strip()
+    if not cron_expression:
+        return ""
+    cursor = (after or now()).replace(second=0, microsecond=0)
+    for _ in range(0, 60 * 24 * 370):
+        cursor += timedelta(minutes=1)
+        if cron_matches_now(cron_expression, cursor):
+            return cursor.strftime("%Y-%m-%d %H:%M:%S")
+    return ""
+
+
+def get_schedule_last_run_at(schedule: dict[str, Any]) -> str:
+    schedule_id = int(schedule.get("id") or 0)
+    if not schedule_id:
+        return ""
+    row = fetch_one("SELECT created_at FROM tasks WHERE schedule_id = ? ORDER BY id DESC LIMIT 1", (schedule_id,))
+    return str(row["created_at"] or "") if row else ""
 
 
 def get_task(task_id: int) -> sqlite3.Row:
@@ -1882,7 +2139,10 @@ class ScheduleCreate(BaseModel):
     platform: str
     quantity: int = Field(ge=1, le=100000)
     concurrency: int = Field(default=1, ge=1, le=64)
-    time_of_day: str = Field(pattern=r"^\d{2}:\d{2}$")
+    schedule_kind: str = Field(default="daily")
+    time_of_day: str | None = None
+    cron_expression: str | None = None
+    schedule_config: dict[str, Any] | None = None
     use_proxy: bool = False
     auto_import_cpamc: bool = False
     enabled: bool = True
@@ -2476,12 +2736,13 @@ class TaskSupervisor:
             """
             UPDATE tasks
             SET status = 'running',
+                first_started_at = COALESCE(first_started_at, ?),
                 started_at = ?,
                 pid = ?,
                 last_error = NULL
             WHERE id = ?
             """,
-            (now_iso(), process.pid, int(task["id"])),
+            (now_iso(), now_iso(), process.pid, int(task["id"])),
         )
         with self._lock:
             self._processes[int(task["id"])] = ManagedProcess(task_id=int(task["id"]), process=process, log_handle=log_handle)
@@ -2518,15 +2779,22 @@ class TaskSupervisor:
                 self._terminate_process(managed.process)
 
     def _trigger_schedules(self) -> None:
-        current_hm = now().strftime("%H:%M")
-        today = now().strftime("%Y-%m-%d")
+        current = now()
+        current_slot = schedule_slot_key(current)
         for schedule in fetch_all("SELECT * FROM schedules WHERE enabled = 1 ORDER BY id ASC"):
-            if str(schedule["time_of_day"]) != current_hm:
+            cron_expression = str(schedule["cron_expression"] or "").strip()
+            if not cron_expression:
+                _, _, cron_expression = normalize_daily_schedule(str(schedule["time_of_day"] or ""))
+            if not cron_matches_now(cron_expression, current):
                 continue
-            if schedule["last_run_date"] == today:
+            if str(schedule["last_run_slot"] or "") == current_slot:
                 continue
             try:
                 create_task_from_schedule(schedule, update_last_run_date=True)
+                execute_no_return(
+                    "UPDATE schedules SET last_run_slot = ?, updated_at = ? WHERE id = ?",
+                    (current_slot, now_iso(), int(schedule["id"])),
+                )
             except Exception as exc:
                 print(f"[web-console] schedule {schedule['id']} failed: {exc}")
 
@@ -3117,18 +3385,22 @@ async def delete_task(task_id: int, request: Request) -> JSONResponse:
 async def create_schedule(payload: ScheduleCreate, request: Request) -> JSONResponse:
     require_authenticated(request)
     validate_platform(payload.platform)
+    normalized_time, schedule_config, cron_expression = normalize_visual_schedule(payload.schedule_kind, payload.schedule_config, payload.time_of_day)
     timestamp = now_iso()
     schedule_id = execute(
         """
-        INSERT INTO schedules (name, platform, quantity, concurrency, time_of_day, use_proxy, auto_import_cpamc, enabled, last_run_date, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        INSERT INTO schedules (name, platform, quantity, concurrency, time_of_day, cron_expression, schedule_kind, schedule_config_json, use_proxy, auto_import_cpamc, enabled, last_run_date, last_run_slot, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
         """,
         (
             payload.name.strip(),
             payload.platform,
             payload.quantity,
             payload.concurrency,
-            payload.time_of_day,
+            normalized_time,
+            cron_expression,
+            payload.schedule_kind,
+            json.dumps(schedule_config, ensure_ascii=False),
             1 if payload.use_proxy else 0,
             1 if payload.auto_import_cpamc else 0,
             1 if payload.enabled else 0,

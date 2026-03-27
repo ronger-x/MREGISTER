@@ -6,7 +6,6 @@ import {
   TASK_STATUSES,
   api,
   buildTemplateEnvJson,
-  getPlatformKeys,
   getTaskDisplayName,
   initialTaskDraft,
   isMobileLayout,
@@ -16,6 +15,7 @@ import {
   statusLabel,
   tr,
 } from './config.js';
+import { createInitialScheduleDraft, useScheduleBuilder, useTaskTiming } from './hooks.js';
 import { BusyButton, Modal } from './ui.jsx';
 
 const SIDEBAR_LOGO_SRC = '/static/MAISHANhlogomini.png';
@@ -41,6 +41,16 @@ const TASK_CENTER_TABS = [
   ['detail', 'task_center_tab_detail'],
   ['schedules', 'task_center_tab_schedules'],
   ['success-accounts', 'task_center_tab_success_accounts'],
+];
+
+const WEEKDAY_OPTIONS = [
+  ['1', 'Mon'],
+  ['2', 'Tue'],
+  ['3', 'Wed'],
+  ['4', 'Thu'],
+  ['5', 'Fri'],
+  ['6', 'Sat'],
+  ['0', 'Sun'],
 ];
 
 function normalizeStatePayload(payload) {
@@ -372,69 +382,23 @@ Authorization: Bearer YOUR_API_KEY`,
   };
 }
 
-function parseTimestamp(value) {
-  if (!value) {
-    return null;
-  }
-  const normalized = String(value).replace(' ', 'T');
-  const timestamp = Date.parse(normalized);
-  return Number.isNaN(timestamp) ? null : timestamp;
+function getScheduleSummaryLabel(schedule) {
+  return schedule?.schedule_label || (schedule?.time_of_day ? tr('schedule_visual_summary', { value: schedule.time_of_day }) : '');
 }
 
-function formatDurationMs(ms) {
-  if (!Number.isFinite(ms) || ms <= 0) {
-    return '0s';
-  }
-  const totalSeconds = Math.floor(ms / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const parts = [];
-  if (days) parts.push(`${days}d`);
-  if (hours) parts.push(`${hours}h`);
-  if (minutes) parts.push(`${minutes}m`);
-  if (!parts.length || (!days && !hours && seconds)) parts.push(`${seconds}s`);
-  return parts.slice(0, 3).join(' ');
+function TaskDurationText({ task, tr, className = '' }) {
+  const timing = useTaskTiming(task, tr);
+  return <span className={className}>{timing.durationLabel}</span>;
 }
 
-function getTaskDurationLabel(task, tr) {
-  if (!task) {
-    return tr('task_duration_unknown');
-  }
-  const start = parseTimestamp(task.started_at || task.created_at);
-  if (!start) {
-    return tr('task_duration_unknown');
-  }
-  const end = parseTimestamp(task.finished_at) || Date.now();
-  const duration = formatDurationMs(end - start);
-  if (['queued'].includes(task.status) && !task.started_at) {
-    return tr('task_duration_pending', { value: duration });
-  }
-  if (['running', 'stopping'].includes(task.status) || (!task.finished_at && task.started_at)) {
-    return tr('task_duration_running', { value: duration });
-  }
-  return tr('task_duration_value', { value: duration });
+function TaskDurationLabel({ task, tr, className = '' }) {
+  const timing = useTaskTiming(task, tr);
+  return <span className={className}>{tr('task_duration_label', { value: timing.durationLabel })}</span>;
 }
 
-function formatTimestampLabel(value, tr) {
-  if (!value) {
-    return tr('task_time_unknown');
-  }
-  return String(value);
-}
-
-function getTaskTimerTone(task) {
-  if (!task) {
-    return 'idle';
-  }
-  if (['running', 'stopping'].includes(task.status)) {
-    return 'live';
-  }
-  if (task.status === 'queued') {
-    return 'queued';
-  }
-  return 'done';
+function TaskDurationValue({ task, tr, className = '' }) {
+  const timing = useTaskTiming(task, tr);
+  return <span className={className}>{timing.durationLabel}</span>;
 }
 
 export function ConsoleApp() {
@@ -488,15 +452,19 @@ export function ConsoleApp() {
     notes: '',
   });
   const [taskDraft, setTaskDraft] = useState(initialTaskDraft(APP_CONFIG.platforms || {}));
-  const [scheduleDraft, setScheduleDraft] = useState({
-    name: '',
-    platform: getPlatformKeys(APP_CONFIG.platforms || {})[0] || 'chatgpt-register-v2',
-    quantity: '1',
-    concurrency: '1',
-    time_of_day: '',
-    use_proxy: false,
-    auto_import_cpamc: false,
-  });
+  const {
+    scheduleDraft,
+    setScheduleDraft,
+    resetScheduleDraft,
+    setScheduleField,
+    setScheduleConfigField,
+    toggleScheduleWeekday,
+    cronExpression,
+    humanSummary,
+    scheduleErrors,
+    hasScheduleErrors,
+    validateSchedule,
+  } = useScheduleBuilder(APP_CONFIG.platforms || {}, tr, WEEKDAY_OPTIONS);
   const [cpamcDraft, setCpamcDraft] = useState({
     enabled: false,
     base_url: '',
@@ -519,6 +487,7 @@ export function ConsoleApp() {
     : normalTasks.filter((task) => task.status === taskFilterStatus);
   const visibleTask = filteredTasks.find((item) => item.id === selectedTaskId) || filteredTasks[0] || null;
   const visibleSchedule = statePayload.schedules.find((item) => item.id === selectedScheduleId) || statePayload.schedules[0] || null;
+  const visibleTaskTiming = useTaskTiming(visibleTask, tr);
   const runningTasks = normalTasks.filter((task) => ['queued', 'running', 'stopping'].includes(task.status));
   const finishedTasks = normalTasks.filter((task) => ['completed', 'partial'].includes(task.status));
   const failedTasks = normalTasks.filter((task) => ['failed', 'stopped', 'interrupted'].includes(task.status));
@@ -640,7 +609,8 @@ export function ConsoleApp() {
     }
     setTaskDraft((current) => normalizeTaskDraft(initial ? initialTaskDraft(payload.platforms) : current, payload.platforms, payload.credentials, payload.proxies));
     setScheduleDraft((current) => {
-      const platform = payload.platforms[current.platform] ? current.platform : (getPlatformKeys(payload.platforms)[0] || 'chatgpt-register-v2');
+      const initialDraft = createInitialScheduleDraft(payload.platforms);
+      const platform = payload.platforms[current.platform] ? current.platform : initialDraft.platform;
       return { ...current, platform };
     });
     setSelectedTaskId((current) => {
@@ -781,6 +751,24 @@ export function ConsoleApp() {
     });
   }
 
+  async function handleCopyCredentialApiKey(item) {
+    try {
+      if (!item?.api_key) {
+        throw new Error('Missing API key');
+      }
+      await navigator.clipboard.writeText(item.api_key);
+      setFlashNotice({
+        type: 'success',
+        message: tr('copy_api_key_done', { name: item.name }),
+      });
+    } catch (error) {
+      setFlashNotice({
+        type: 'error',
+        message: tr('copy_api_key_failed'),
+      });
+    }
+  }
+
   async function handleTaskSubmit(event) {
     event.preventDefault();
     await withBusy('task-save', async () => {
@@ -808,6 +796,11 @@ export function ConsoleApp() {
 
   async function handleScheduleSubmit(event) {
     event.preventDefault();
+    const validationErrors = validateSchedule();
+    if (Object.keys(validationErrors).length) {
+      setLoadError(Object.values(validationErrors)[0]);
+      return;
+    }
     await withBusy('schedule-save', async () => {
       await api('/api/schedules', {
         method: 'POST',
@@ -815,18 +808,17 @@ export function ConsoleApp() {
           ...scheduleDraft,
           quantity: Number(scheduleDraft.quantity),
           concurrency: Number(scheduleDraft.concurrency || 1),
+          schedule_config: {
+            ...(scheduleDraft.schedule_config || {}),
+            day: Number(scheduleDraft.schedule_config?.day || 1),
+            interval_minutes: Number(scheduleDraft.schedule_config?.interval_minutes || 5),
+            interval_hours: Number(scheduleDraft.schedule_config?.interval_hours || 1),
+            minute: Number(scheduleDraft.schedule_config?.minute || 0),
+          },
           enabled: true,
         }),
       });
-      setScheduleDraft({
-        name: '',
-        platform: getPlatformKeys(statePayload.platforms)[0] || 'chatgpt-register-v2',
-        quantity: '1',
-        concurrency: '1',
-        time_of_day: '',
-        use_proxy: false,
-        auto_import_cpamc: false,
-      });
+      resetScheduleDraft(statePayload.platforms);
       await refreshState();
     });
   }
@@ -1338,6 +1330,9 @@ export function ConsoleApp() {
                       <p className="notes">{item.notes || ''}</p>
                     </div>
                     <div className="entity-actions">
+                      <BusyButton type="button" className="ghost-btn" onClick={() => handleCopyCredentialApiKey(item)}>
+                        {tr('copy_api_key')}
+                      </BusyButton>
                       <BusyButton type="button" busy={isBusy(`set-default-${defaultKey}-${item.id}`)} disabled={isDefault} onClick={() => handleSetDefault(defaultKey, item.id)}>
                         {isDefault ? tr('current_default') : tr('set_default')}
                       </BusyButton>
@@ -1868,7 +1863,7 @@ export function ConsoleApp() {
                     </div>
                     <div className="task-side-item__meta">
                       <span className="task-side-item__count">{task.results_count}/{task.quantity}</span>
-                      <span className="task-side-item__count">{getTaskDurationLabel(task, tr)}</span>
+                      <TaskDurationText task={task} tr={tr} className="task-side-item__count" />
                       <span className={`status-pill status-pill--${task.status}`}>{statusLabel(task.status)}</span>
                     </div>
                   </button>
@@ -1882,7 +1877,7 @@ export function ConsoleApp() {
                       </div>
                     <div className="task-side-item__meta">
                       <span className="task-side-item__count">{detail?.completedRuns || 0} {tr('schedule_runs_short')}</span>
-                      <span className="task-side-item__count">{detail?.latestTask ? getTaskDurationLabel(detail.latestTask, tr) : tr('task_duration_unknown')}</span>
+                      {detail?.latestTask ? <TaskDurationText task={detail.latestTask} tr={tr} className="task-side-item__count" /> : <span className="task-side-item__count">{tr('task_duration_unknown')}</span>}
                       <span className={`status-pill ${schedule.enabled ? 'status-pill--linked' : 'status-pill--disabled'}`.trim()}>
                         {schedule.enabled ? tr('enable') : tr('disable')}
                       </span>
@@ -1905,9 +1900,9 @@ export function ConsoleApp() {
                       completed: visibleTask.results_count,
                       status: statusLabel(visibleTask.status),
                     })}</p>
-                    <div className={`task-live-timer task-live-timer--${getTaskTimerTone(visibleTask)}`.trim()}>
+                    <div className={`task-live-timer task-live-timer--${visibleTaskTiming.timerTone}`.trim()}>
                       <span className="task-live-timer__dot" aria-hidden="true" />
-                      <strong>{getTaskDurationLabel(visibleTask, tr)}</strong>
+                      <strong>{visibleTaskTiming.durationLabel}</strong>
                       <span>{tr('task_live_timer_hint')}</span>
                     </div>
                   </div>
@@ -1920,7 +1915,7 @@ export function ConsoleApp() {
                         <span>{tr('schedule_target_quantity', { value: scheduleSummary.todayTask?.quantity ?? scheduleSummary.schedule.quantity })}</span>
                         <span>{tr('schedule_completed_quantity', { value: scheduleSummary.todayTask?.results_count ?? 0 })}</span>
                         <span>{tr('schedule_today_status', { value: scheduleSummary.todayTask ? statusLabel(scheduleSummary.todayTask.status) : tr('schedule_today_none') })}</span>
-                        <span>{tr('task_duration_label', { value: scheduleSummary.todayTask ? getTaskDurationLabel(scheduleSummary.todayTask, tr) : tr('task_duration_unknown') })}</span>
+                        {scheduleSummary.todayTask ? <TaskDurationLabel task={scheduleSummary.todayTask} tr={tr} /> : <span>{tr('task_duration_label', { value: tr('task_duration_unknown') })}</span>}
                         <span>{tr('schedule_completed_runs', { value: scheduleSummary.completedRuns })}</span>
                       </div>
                     </aside>
@@ -1929,15 +1924,15 @@ export function ConsoleApp() {
                 <div className="task-summary-grid task-summary-grid--compact">
                   <article className="task-summary-card">
                     <span>{tr('task_started_time')}</span>
-                    <strong>{formatTimestampLabel(visibleTask.started_at, tr)}</strong>
+                    <strong>{visibleTaskTiming.startedAtLabel}</strong>
                   </article>
                   <article className="task-summary-card">
                     <span>{tr('task_finished_time')}</span>
-                    <strong>{formatTimestampLabel(visibleTask.finished_at, tr)}</strong>
+                    <strong>{visibleTaskTiming.finishedAtLabel}</strong>
                   </article>
                   <article className="task-summary-card task-summary-card--accent">
                     <span>{tr('task_run_duration')}</span>
-                    <strong>{getTaskDurationLabel(visibleTask, tr)}</strong>
+                    <strong>{visibleTaskTiming.durationLabel}</strong>
                   </article>
                 </div>
                 <div className="task-actions">
@@ -1997,10 +1992,10 @@ export function ConsoleApp() {
                   <div className="task-detail-header-main">
                     <h3>{visibleSchedule.name} {tr('schedule_tag_suffix')} (#{visibleSchedule.id})</h3>
                     <p className="meta">
-                      {visibleSchedule.platform} | {tr('schedule_target_quantity', { value: visibleSchedule.quantity })} | {tr('schedule_completed_quantity', { value: scheduleDetail?.todayTask?.results_count ?? 0 })} | {tr('schedule_today_status', { value: scheduleDetail?.todayTask ? statusLabel(scheduleDetail.todayTask.status) : tr('schedule_today_none') })}
+                      {visibleSchedule.platform} | {getScheduleSummaryLabel(visibleSchedule)} | {tr('schedule_target_quantity', { value: visibleSchedule.quantity })} | {tr('schedule_completed_quantity', { value: scheduleDetail?.todayTask?.results_count ?? 0 })} | {tr('schedule_today_status', { value: scheduleDetail?.todayTask ? statusLabel(scheduleDetail.todayTask.status) : tr('schedule_today_none') })}
                     </p>
                     <p className="notes">
-                      {tr('schedule_completed_runs', { value: scheduleDetail?.completedRuns ?? 0 })} | {tr('task_duration_label', { value: scheduleDetail?.todayTask ? getTaskDurationLabel(scheduleDetail.todayTask, tr) : tr('task_duration_unknown') })} | {visibleSchedule.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')} | {visibleSchedule.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}
+                      {tr('schedule_completed_runs', { value: scheduleDetail?.completedRuns ?? 0 })} | {scheduleDetail?.todayTask ? <TaskDurationValue task={scheduleDetail.todayTask} tr={tr} /> : tr('task_duration_unknown')} | {visibleSchedule.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')} | {visibleSchedule.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}
                     </p>
                   </div>
                 </div>
@@ -2052,35 +2047,106 @@ export function ConsoleApp() {
             <form className="stack" onSubmit={handleScheduleSubmit}>
               <label className="field-card">
                 <span>{tr('field_name')}</span>
-                <input required value={scheduleDraft.name} onChange={(event) => setScheduleDraft((current) => ({ ...current, name: event.target.value }))} />
+                <input required value={scheduleDraft.name} onChange={(event) => setScheduleField('name', event.target.value)} />
+                {scheduleErrors.name ? <p className="field-tip">{scheduleErrors.name}</p> : null}
               </label>
               <label className="field-card">
                 <span>{tr('field_platform')}</span>
-                <select value={scheduleDraft.platform} onChange={(event) => setScheduleDraft((current) => ({ ...current, platform: event.target.value }))}>
+                <select value={scheduleDraft.platform} onChange={(event) => setScheduleField('platform', event.target.value)}>
                   {Object.entries(statePayload.platforms).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}
                 </select>
               </label>
               <label className="field-card">
                 <span>{tr('field_quantity')}</span>
-                <input type="number" min="1" max="100000" required value={scheduleDraft.quantity} onChange={(event) => setScheduleDraft((current) => ({ ...current, quantity: event.target.value }))} />
+                <input type="number" min="1" max="100000" required value={scheduleDraft.quantity} onChange={(event) => setScheduleField('quantity', event.target.value)} />
+                {scheduleErrors.quantity ? <p className="field-tip">{scheduleErrors.quantity}</p> : null}
               </label>
               <label className="field-card">
                 <span>{tr('field_concurrency')}</span>
-                <input type="number" min="1" max="64" value={scheduleDraft.concurrency} onChange={(event) => setScheduleDraft((current) => ({ ...current, concurrency: event.target.value }))} />
+                <input type="number" min="1" max="64" value={scheduleDraft.concurrency} onChange={(event) => setScheduleField('concurrency', event.target.value)} />
+                {scheduleErrors.concurrency ? <p className="field-tip">{scheduleErrors.concurrency}</p> : null}
               </label>
               <label className="field-card">
-                <span>{tr('field_time_of_day')}</span>
-                <input type="time" required value={scheduleDraft.time_of_day} onChange={(event) => setScheduleDraft((current) => ({ ...current, time_of_day: event.target.value }))} />
+                <span>{tr('field_schedule_kind')}</span>
+                <select value={scheduleDraft.schedule_kind} onChange={(event) => setScheduleField('schedule_kind', event.target.value)}>
+                  <option value="interval-minutes">{tr('schedule_kind_interval_minutes')}</option>
+                  <option value="interval-hours">{tr('schedule_kind_interval_hours')}</option>
+                  <option value="daily">{tr('schedule_kind_daily')}</option>
+                  <option value="weekly">{tr('schedule_kind_weekly')}</option>
+                  <option value="monthly">{tr('schedule_kind_monthly')}</option>
+                </select>
               </label>
+              {['daily', 'weekly', 'monthly'].includes(scheduleDraft.schedule_kind) ? (
+              <label className="field-card">
+                <span>{tr('field_time_of_day')}</span>
+                <input type="time" required value={scheduleDraft.time_of_day} onChange={(event) => setScheduleField('time_of_day', event.target.value)} />
+                {scheduleErrors.time_of_day ? <p className="field-tip">{scheduleErrors.time_of_day}</p> : null}
+              </label>
+              ) : null}
+              {scheduleDraft.schedule_kind === 'interval-minutes' ? (
+                <label className="field-card">
+                  <span>{tr('field_interval_minutes')}</span>
+                  <input type="number" min="1" max="59" required value={scheduleDraft.schedule_config?.interval_minutes || '5'} onChange={(event) => setScheduleConfigField('interval_minutes', event.target.value)} />
+                  {scheduleErrors.interval_minutes ? <p className="field-tip">{scheduleErrors.interval_minutes}</p> : null}
+                </label>
+              ) : null}
+              {scheduleDraft.schedule_kind === 'interval-hours' ? (
+                <>
+                  <label className="field-card">
+                    <span>{tr('field_interval_hours')}</span>
+                    <input type="number" min="1" max="23" required value={scheduleDraft.schedule_config?.interval_hours || '1'} onChange={(event) => setScheduleConfigField('interval_hours', event.target.value)} />
+                    {scheduleErrors.interval_hours ? <p className="field-tip">{scheduleErrors.interval_hours}</p> : null}
+                  </label>
+                  <label className="field-card">
+                    <span>{tr('field_interval_minute_offset')}</span>
+                    <input type="number" min="0" max="59" required value={scheduleDraft.schedule_config?.minute || '0'} onChange={(event) => setScheduleConfigField('minute', event.target.value)} />
+                    {scheduleErrors.minute ? <p className="field-tip">{scheduleErrors.minute}</p> : null}
+                  </label>
+                </>
+              ) : null}
+              {scheduleDraft.schedule_kind === 'weekly' ? (
+                <div className="field-card full-row">
+                  <span>{tr('field_schedule_weekdays')}</span>
+                  <div className="schedule-weekday-grid">
+                    {WEEKDAY_OPTIONS.map(([value, label]) => {
+                      const active = (scheduleDraft.schedule_config?.weekdays || []).includes(value);
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          className={`schedule-weekday-chip ${active ? 'is-active' : ''}`.trim()}
+                          onClick={() => toggleScheduleWeekday(value)}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {scheduleErrors.weekdays ? <p className="field-tip">{scheduleErrors.weekdays}</p> : null}
+                </div>
+              ) : null}
+              {scheduleDraft.schedule_kind === 'monthly' ? (
+                <label className="field-card">
+                  <span>{tr('field_schedule_day')}</span>
+                  <input type="number" min="1" max="31" required value={scheduleDraft.schedule_config?.day || '1'} onChange={(event) => setScheduleConfigField('day', event.target.value)} />
+                  {scheduleErrors.day ? <p className="field-tip">{scheduleErrors.day}</p> : null}
+                </label>
+              ) : null}
+              <div className="field-card full-row">
+                <span>{tr('schedule_generated_cron')}</span>
+                <code className="inline-code-block">{cronExpression}</code>
+                <p className="field-tip">{tr('schedule_human_readable', { value: humanSummary })}</p>
+                <p className="field-tip">{tr('schedule_builder_hint')}</p>
+              </div>
               <label className="checkbox-row field-card field-card--checkbox">
-                <input type="checkbox" checked={scheduleDraft.use_proxy} onChange={(event) => setScheduleDraft((current) => ({ ...current, use_proxy: event.target.checked }))} />
+                <input type="checkbox" checked={scheduleDraft.use_proxy} onChange={(event) => setScheduleField('use_proxy', event.target.checked)} />
                 <span>{tr('field_use_default_proxy')}</span>
               </label>
               <label className="checkbox-row field-card field-card--checkbox">
-                <input type="checkbox" checked={scheduleDraft.auto_import_cpamc} onChange={(event) => setScheduleDraft((current) => ({ ...current, auto_import_cpamc: event.target.checked }))} />
+                <input type="checkbox" checked={scheduleDraft.auto_import_cpamc} onChange={(event) => setScheduleField('auto_import_cpamc', event.target.checked)} />
                 <span>{tr('field_schedule_auto_import_cpamc')}</span>
               </label>
-              <BusyButton type="submit" busy={isBusy('schedule-save')}>{tr('save_schedule')}</BusyButton>
+              <BusyButton type="submit" busy={isBusy('schedule-save')} disabled={hasScheduleErrors}>{tr('save_schedule')}</BusyButton>
             </form>
           </article>
           <article className="panel">
@@ -2097,13 +2163,13 @@ export function ConsoleApp() {
                   <article className="entity-card" key={item.id}>
                     <div>
                       <h3>{item.name}</h3>
-                      <p className="meta">{tr('schedule_meta', {
+                      <p className="meta">{tr('schedule_meta_visual', {
                         platform: item.platform,
-                        time: item.time_of_day,
+                        summary: getScheduleSummaryLabel(item),
                         quantity: item.quantity,
                         enabled: item.enabled ? tr('enable') : tr('disable'),
                       })}</p>
-                      <p className="notes">{tr('task_duration_label', { value: detail?.latestTask ? getTaskDurationLabel(detail.latestTask, tr) : tr('task_duration_unknown') })}</p>
+                      <p className="notes">{detail?.latestTask ? <TaskDurationLabel task={detail.latestTask} tr={tr} /> : tr('task_duration_label', { value: tr('task_duration_unknown') })}</p>
                       <p className="notes">{item.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')}</p>
                       <p className="notes">{item.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}</p>
                     </div>

@@ -670,6 +670,40 @@ label span { font-size: 13px; color: var(--muted); }
 .field-card--compact { padding: 10px 12px; }
 .field-card--checkbox { grid-template-columns: auto 1fr; align-items: center; gap: 10px; }
 
+.schedule-weekday-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.schedule-weekday-chip {
+  min-width: 54px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(18, 108, 82, 0.14);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.schedule-weekday-chip.is-active {
+  background: linear-gradient(145deg, var(--accent), var(--accent-strong));
+  color: #fff;
+}
+
+.inline-code-block {
+  display: block;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #15181c;
+  color: #e1f7e7;
+  font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  overflow: auto;
+}
+
 .browser-template-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
