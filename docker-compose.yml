@@ -1,5 +1,5 @@
 services:
-  register-console:
+  register-console-2:
     build:
       context: .
       dockerfile: web_console/Dockerfile
