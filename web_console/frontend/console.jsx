@@ -858,11 +858,20 @@ export function ConsoleApp() {
       try {
         const result = await api(`/api/tasks/${task.id}/cpamc-import`, { method: 'POST' });
         await refreshState();
+        const importedCount = Number(result.imported_count || 0);
+        const skippedCount = Number(result.skipped_count || 0);
+        const failedCount = Number(result.failed_count || 0);
+        let message = tr('cpamc_import_success', { count: importedCount });
+        if (skippedCount && !importedCount && !failedCount) {
+          message = tr('cpamc_import_skipped_only', { skipped: skippedCount });
+        } else if (skippedCount) {
+          message = tr('cpamc_import_with_skipped', { success: importedCount, skipped: skippedCount, failed: failedCount });
+        } else if (failedCount) {
+          message = tr('cpamc_import_partial', { success: importedCount, failed: failedCount });
+        }
         await openModal({
           title: tr('cpamc_import_result_title'),
-          message: result.failed_count
-            ? tr('cpamc_import_partial', { success: result.imported_count, failed: result.failed_count })
-            : tr('cpamc_import_success', { count: result.imported_count }),
+          message,
           confirmLabel: tr('modal_close'),
         });
       } catch (error) {
@@ -909,7 +918,7 @@ export function ConsoleApp() {
       await refreshState();
       const cpamcMessage = result.cpamc
         ? result.cpamc.imported
-          ? tr('regenerate_oauth_cpamc_success')
+          ? (result.cpamc.skipped ? tr('regenerate_oauth_cpamc_skipped') : tr('regenerate_oauth_cpamc_success'))
           : tr('regenerate_oauth_cpamc_failed', { error: result.cpamc.error || 'unknown error' })
         : '';
       await openModal({
@@ -935,10 +944,15 @@ export function ConsoleApp() {
   async function handleRetrySuccessAccountCpamc(item) {
     await withBusy(`success-account-cpamc-${item.task_id}-${item.email}`, async () => {
       const encodedEmail = encodeURIComponent(item.email);
-      await api(`/api/tasks/${item.task_id}/success-accounts/${encodedEmail}/cpamc-retry`, { method: 'POST' });
+      const result = await api(`/api/tasks/${item.task_id}/success-accounts/${encodedEmail}/cpamc-retry`, { method: 'POST' });
       await refreshState();
       await loadSuccessAccounts(successAccountsPage.page || 1);
-      setFlashNotice({ type: 'success', message: tr('retry_cpamc_import_done', { email: item.email }) });
+      setFlashNotice({
+        type: 'success',
+        message: result.cpamc?.skipped
+          ? tr('retry_cpamc_import_skipped', { email: item.email })
+          : tr('retry_cpamc_import_done', { email: item.email }),
+      });
     });
   }
 

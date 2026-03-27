@@ -256,6 +256,7 @@ UI_TRANSLATIONS = {
         "regenerate_oauth_result_title": "OAuth Token 获取结果",
         "regenerate_oauth_success": "已为 {email} 重新获取 OAuth Token。",
         "regenerate_oauth_cpamc_success": "并已导入到 CPAMC。",
+        "regenerate_oauth_cpamc_skipped": "CPAMC 已存在相同内容，已跳过重复导入。",
         "regenerate_oauth_cpamc_failed": "CPAMC 导入失败：{error}",
         "cpamc_badge_imported": "已导入 CPAMC",
         "cpamc_badge_failed": "导入失败",
@@ -274,6 +275,7 @@ UI_TRANSLATIONS = {
         "success_accounts_empty_list": "当前筛选下没有成功账号。",
         "retry_cpamc_import": "重试导入 CPAMC",
         "retry_cpamc_import_done": "已重试导入 {email} 到 CPAMC。",
+        "retry_cpamc_import_skipped": "{email} 的 JSON 已导入过，已跳过重复导入。",
         "section_schedules": "定时任务",
         "schedules_create_title": "新增定时任务",
         "schedules_create_desc": "每天在固定时间自动创建一个独立任务。",
@@ -302,6 +304,8 @@ UI_TRANSLATIONS = {
         "cpamc_import_disabled": "当前任务没有可导入的 JSON 文件",
         "cpamc_import_success": "已导入 {count} 个 JSON 文件到 CPAMC。",
         "cpamc_import_partial": "已导入 {success} 个，失败 {failed} 个。",
+        "cpamc_import_skipped_only": "检测到 {skipped} 个 JSON 文件已导入过，已全部跳过。",
+        "cpamc_import_with_skipped": "已导入 {success} 个，跳过 {skipped} 个，失败 {failed} 个。",
         "cpamc_import_result_title": "导入完成",
         "modal_close": "关闭",
         "section_api": "API 接口",
@@ -536,6 +540,7 @@ UI_TRANSLATIONS = {
         "regenerate_oauth_result_title": "OAuth token result",
         "regenerate_oauth_success": "Regenerated OAuth token for {email}.",
         "regenerate_oauth_cpamc_success": "Imported to CPAMC as well.",
+        "regenerate_oauth_cpamc_skipped": "Skipped CPAMC import because the same content was already imported.",
         "regenerate_oauth_cpamc_failed": "CPAMC import failed: {error}",
         "cpamc_badge_imported": "Imported to CPAMC",
         "cpamc_badge_failed": "Import failed",
@@ -569,7 +574,10 @@ UI_TRANSLATIONS = {
         "cpamc_import_disabled": "This task has no importable JSON files",
         "cpamc_import_success": "Imported {count} JSON file(s) to CPAMC.",
         "cpamc_import_partial": "Imported {success}, failed {failed}.",
+        "cpamc_import_skipped_only": "Skipped {skipped} JSON file(s) because they were already imported.",
+        "cpamc_import_with_skipped": "Imported {success}, skipped {skipped}, failed {failed}.",
         "cpamc_import_result_title": "Import complete",
+        "retry_cpamc_import_skipped": "Skipped duplicate CPAMC import for {email} because the same JSON was already imported.",
         "modal_close": "Close",
         "section_api": "API 接口",
         "api_create_title": "Create API key",
@@ -1133,7 +1141,10 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
         if cpamc_is_ready(cpamc_settings):
             try:
                 cpamc_result = import_success_account_token_to_cpamc(task, email)
-                append_task_console(task, f"Imported regenerated OAuth token to CPAMC for {email}.")
+                if cpamc_result.get("skipped"):
+                    append_task_console(task, f"Skipped CPAMC import for regenerated OAuth token of {email} because the same content was already imported.")
+                else:
+                    append_task_console(task, f"Imported regenerated OAuth token to CPAMC for {email}.")
             except Exception as exc:
                 cpamc_result = {"imported": False, "error": str(exc), "name": token_json_path.name}
                 append_task_console(task, f"Failed to import regenerated OAuth token to CPAMC for {email}: {exc}")
@@ -1235,13 +1246,20 @@ def import_task_files_to_cpamc(
     if not candidates:
         raise RuntimeError("No importable JSON files were found for this task")
 
+    import_statuses = load_task_cpamc_import_statuses(task)
     imported: list[str] = []
+    skipped: list[str] = []
     failed: list[dict[str, str]] = []
     for file_path in candidates:
         try:
             payload_bytes = file_path.read_bytes()
         except Exception as exc:
             failed.append({"name": file_path.name, "error": str(exc)})
+            continue
+        fingerprint = build_cpamc_import_fingerprint(payload_bytes)
+        previous = import_statuses.get(file_path.name, {})
+        if previous.get("fingerprint") == fingerprint:
+            skipped.append(file_path.name)
             continue
         try:
             response = cpamc_request(
@@ -1257,17 +1275,26 @@ def import_task_files_to_cpamc(
             continue
         if response.ok:
             imported.append(file_path.name)
+            import_statuses[file_path.name] = {
+                "fingerprint": fingerprint,
+                "imported_at": now_iso(),
+            }
         else:
             failed.append({"name": file_path.name, "error": parse_cpamc_error(response)})
 
-    if not imported:
+    if imported:
+        save_task_cpamc_import_statuses(task, import_statuses)
+
+    if not imported and not skipped:
         first_error = failed[0]["error"] if failed else "Unknown import error"
         raise RuntimeError(f"CPAMC import failed: {first_error}")
     return {
         "ok": True,
         "imported_count": len(imported),
+        "skipped_count": len(skipped),
         "failed_count": len(failed),
         "imported": imported,
+        "skipped": skipped,
         "failed": failed,
     }
 
@@ -1462,6 +1489,7 @@ def task_paths(task: sqlite3.Row | dict[str, Any]) -> dict[str, Path]:
         "results_file": results_file,
         "success_accounts_file": task_dir / "output" / "success_accounts.txt",
         "success_accounts_status_file": task_dir / "output" / "success_accounts_status.json",
+        "cpamc_import_status_file": task_dir / "output" / "cpamc_import_status.json",
         "archive_path": archive_path,
     }
 
@@ -1570,6 +1598,33 @@ def save_success_account_statuses(task: sqlite3.Row | dict[str, Any], statuses: 
     path.write_text(json.dumps(statuses, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_task_cpamc_import_statuses(task: sqlite3.Row | dict[str, Any]) -> dict[str, dict[str, Any]]:
+    path = task_paths(task)["cpamc_import_status_file"]
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for key, value in payload.items():
+        if isinstance(key, str) and isinstance(value, dict):
+            result[key] = value
+    return result
+
+
+def save_task_cpamc_import_statuses(task: sqlite3.Row | dict[str, Any], statuses: dict[str, dict[str, Any]]) -> None:
+    path = task_paths(task)["cpamc_import_status_file"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(statuses, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def build_cpamc_import_fingerprint(payload_bytes: bytes) -> str:
+    return hashlib.sha256(payload_bytes).hexdigest()
+
+
 def import_success_account_token_to_cpamc(task: sqlite3.Row | dict[str, Any], email: str) -> dict[str, Any]:
     cpamc_settings = get_cpamc_settings()
     if not cpamc_is_ready(cpamc_settings):
@@ -1577,17 +1632,38 @@ def import_success_account_token_to_cpamc(task: sqlite3.Row | dict[str, Any], em
     token_json_path = Path(task["task_dir"]) / "output" / "tokens" / f"{email}.json"
     if not token_json_path.exists():
         raise RuntimeError("Token JSON file not found for this account")
+    payload_bytes = token_json_path.read_bytes()
+    fingerprint = build_cpamc_import_fingerprint(payload_bytes)
+    import_statuses = load_task_cpamc_import_statuses(task)
+    previous = import_statuses.get(token_json_path.name, {})
+    if previous.get("fingerprint") == fingerprint:
+        return {
+            "imported": True,
+            "skipped": True,
+            "name": token_json_path.name,
+            "token_json": str(token_json_path),
+        }
     response = cpamc_request(
         "POST",
         base_url=str(cpamc_settings["base_url"]),
         management_key=str(cpamc_settings["management_key"]),
         path=f"auth-files?name={quote(token_json_path.name)}",
-        data=token_json_path.read_bytes(),
+        data=payload_bytes,
         headers={"Content-Type": "application/json"},
     )
     if not response.ok:
         raise RuntimeError(parse_cpamc_error(response))
-    return {"imported": True, "name": token_json_path.name, "token_json": str(token_json_path)}
+    import_statuses[token_json_path.name] = {
+        "fingerprint": fingerprint,
+        "imported_at": now_iso(),
+    }
+    save_task_cpamc_import_statuses(task, import_statuses)
+    return {
+        "imported": True,
+        "skipped": False,
+        "name": token_json_path.name,
+        "token_json": str(token_json_path),
+    }
 
 
 def backfill_all_success_accounts() -> dict[str, int]:
@@ -2431,7 +2507,7 @@ class TaskSupervisor:
             result = import_task_files_to_cpamc(task, cpamc=cpamc)
             append_task_console(
                 task,
-                f"Auto import to CPAMC finished: imported {result['imported_count']}, failed {result['failed_count']}.",
+                f"Auto import to CPAMC finished: imported {result['imported_count']}, skipped {result['skipped_count']}, failed {result['failed_count']}.",
             )
         except Exception as exc:
             append_task_console(task, f"Auto import to CPAMC failed: {exc}")
@@ -2813,7 +2889,10 @@ async def retry_task_success_account_cpamc(task_id: int, email: str, request: Re
             "updated_at": now_iso(),
         }
         save_success_account_statuses(row, statuses)
-        append_task_console(row, f"CPAMC import retry succeeded for {normalized_email}.")
+        if result.get("skipped"):
+            append_task_console(row, f"CPAMC import retry skipped for {normalized_email} because the same content was already imported.")
+        else:
+            append_task_console(row, f"CPAMC import retry succeeded for {normalized_email}.")
         return JSONResponse({"ok": True, "email": normalized_email, "cpamc": result})
     except Exception as exc:
         statuses[normalized_email] = {
