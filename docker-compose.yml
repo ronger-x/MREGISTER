@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: web_console/Dockerfile
-    container_name: mregister
+    container_name: mregister_2
     ports:
       - "8200:8000"
     environment:
