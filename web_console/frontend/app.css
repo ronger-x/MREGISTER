@@ -1118,6 +1118,13 @@ pre {
   margin-bottom: 18px;
 }
 
+.success-accounts-toolbar-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .success-accounts-statusbar {
   display: flex;
   align-items: center;
@@ -1159,6 +1166,20 @@ pre {
   gap: 12px;
   margin-top: 16px;
   flex-wrap: wrap;
+}
+
+.success-accounts-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.success-accounts-titlebar .busy-btn,
+.success-accounts-titlebar button {
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: nowrap;
 }
 
 .linkish-button {

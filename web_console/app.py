@@ -263,12 +263,18 @@ UI_TRANSLATIONS = {
         "preview_success_accounts": "预览成功账号",
         "download_success_accounts": "下载成功账号",
         "regenerate_oauth_token": "重新获取 OAuth Token",
+        "batch_regenerate_oauth_token": "批量重新登录",
         "regenerate_oauth_prompt": "将为 {email} 重新执行 OAuth 登录并写入 tokens 目录。继续吗？",
         "regenerate_oauth_result_title": "OAuth Token 获取结果",
         "regenerate_oauth_success": "已为 {email} 重新获取 OAuth Token。",
         "regenerate_oauth_cpamc_success": "并已导入到 CPAMC。",
         "regenerate_oauth_cpamc_skipped": "CPAMC 已存在相同内容，已跳过重复导入。",
         "regenerate_oauth_cpamc_failed": "CPAMC 导入失败：{error}",
+        "batch_regenerate_oauth_prompt": "将为 {count} 个成功账号重新执行 OAuth 登录并写入 tokens 目录。继续吗？",
+        "batch_regenerate_oauth_result_title": "批量重新登录结果",
+        "batch_regenerate_oauth_result_summary": "共 {total} 个账号，成功 {succeeded} 个，失败 {failed} 个。",
+        "batch_regenerate_oauth_result_failures": "失败项：\n{value}",
+        "batch_regenerate_oauth_empty": "当前没有可批量重新登录的成功账号。",
         "cpamc_badge_imported": "已导入 CPAMC",
         "cpamc_badge_failed": "导入失败",
         "extract_history_success_accounts": "提取历史成功账号",
@@ -653,12 +659,18 @@ UI_TRANSLATIONS = {
         "preview_success_accounts": "Preview successful accounts",
         "download_success_accounts": "Download successful accounts",
         "regenerate_oauth_token": "Regenerate OAuth token",
+        "batch_regenerate_oauth_token": "Batch relogin",
         "regenerate_oauth_prompt": "Run OAuth login again for {email} and write fresh tokens into the task tokens directory?",
         "regenerate_oauth_result_title": "OAuth token result",
         "regenerate_oauth_success": "Regenerated OAuth token for {email}.",
         "regenerate_oauth_cpamc_success": "Imported to CPAMC as well.",
         "regenerate_oauth_cpamc_skipped": "Skipped CPAMC import because the same content was already imported.",
         "regenerate_oauth_cpamc_failed": "CPAMC import failed: {error}",
+        "batch_regenerate_oauth_prompt": "Run OAuth login again for {count} successful accounts and write fresh tokens into the task tokens directory?",
+        "batch_regenerate_oauth_result_title": "Batch relogin result",
+        "batch_regenerate_oauth_result_summary": "{total} accounts in total, {succeeded} succeeded, {failed} failed.",
+        "batch_regenerate_oauth_result_failures": "Failures:\n{value}",
+        "batch_regenerate_oauth_empty": "There are no successful accounts available for batch relogin.",
         "cpamc_badge_imported": "Imported to CPAMC",
         "cpamc_badge_failed": "Import failed",
         "extract_history_success_accounts": "Extract historical success accounts",
@@ -1085,6 +1097,14 @@ def init_db() -> None:
                 "last_run_slot": "TEXT",
             },
         )
+        conn.execute(
+            """
+            UPDATE tasks
+            SET first_started_at = started_at
+            WHERE first_started_at IS NULL
+              AND started_at IS NOT NULL
+            """
+        )
         conn.commit()
 
 
@@ -1112,7 +1132,10 @@ def execute_no_return(query: str, params: tuple[Any, ...] = ()) -> None:
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return {key: row[key] for key in row.keys()}
+    item = {key: row[key] for key in row.keys()}
+    if "first_started_at" in item and not item.get("first_started_at") and item.get("started_at"):
+        item["first_started_at"] = item["started_at"]
+    return item
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -1389,6 +1412,97 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
         raise HTTPException(status_code=502, detail=f"OAuth token regeneration failed: {exc}") from exc
 
 
+def regenerate_success_account_oauth_batch(items: list[SuccessAccountOAuthBatchItem]) -> dict[str, Any]:
+    normalized_items: list[tuple[int, str]] = []
+    seen: set[tuple[int, str]] = set()
+    for item in items:
+        email = item.email.strip()
+        if not email:
+            continue
+        dedupe_key = (int(item.task_id), email.lower())
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        normalized_items.append((int(item.task_id), email))
+
+    if not normalized_items:
+        raise HTTPException(status_code=400, detail="No success accounts were provided for batch OAuth regeneration")
+
+    task_cache: dict[int, sqlite3.Row] = {}
+    account_cache: dict[int, dict[str, tuple[str, str]]] = {}
+    results: list[dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+
+    for task_id, requested_email in normalized_items:
+        try:
+            task = task_cache.get(task_id)
+            if task is None:
+                task = get_task(task_id)
+                task_cache[task_id] = task
+            task_accounts = account_cache.get(task_id)
+            if task_accounts is None:
+                task_accounts = {
+                    email.strip().lower(): (email, password)
+                    for email, password in load_success_accounts(task)
+                }
+                account_cache[task_id] = task_accounts
+            matched = task_accounts.get(requested_email.lower())
+            if not matched:
+                raise HTTPException(status_code=404, detail="The specified success account was not found in this task")
+            email, password = matched
+            result = regenerate_success_account_oauth_token(task, email, password)
+            succeeded += 1
+            results.append(
+                {
+                    "ok": True,
+                    "task_id": task_id,
+                    "email": email,
+                    "token_json": str(result.get("token_json") or ""),
+                    "cpamc": result.get("cpamc"),
+                }
+            )
+        except HTTPException as exc:
+            failed += 1
+            results.append(
+                {
+                    "ok": False,
+                    "task_id": task_id,
+                    "email": requested_email,
+                    "error": str(exc.detail),
+                }
+            )
+        except Exception as exc:
+            failed += 1
+            results.append(
+                {
+                    "ok": False,
+                    "task_id": task_id,
+                    "email": requested_email,
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "ok": failed == 0,
+        "total": len(normalized_items),
+        "succeeded": succeeded,
+        "failed": failed,
+        "results": results,
+    }
+
+
+def resolve_success_account_batch_items(payload: SuccessAccountOAuthBatchRequest) -> list[SuccessAccountOAuthBatchItem]:
+    if payload.select_all_filtered:
+        records = collect_success_account_records(search=payload.search, schedule_id=payload.schedule_id)
+        return [
+            SuccessAccountOAuthBatchItem(task_id=int(record["task_id"]), email=str(record["email"]))
+            for record in records
+            if str(record.get("platform") or "") in {"chatgpt-register-v2", "chatgpt-register-v3"}
+        ]
+    return payload.items
+
+
 def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, Any]]:
     statuses = load_success_account_statuses(task)
     items: list[dict[str, Any]] = []
@@ -1407,7 +1521,7 @@ def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, 
     return items
 
 
-def query_success_accounts(*, page: int, page_size: int, search: str, schedule_id: int | None = None) -> dict[str, Any]:
+def collect_success_account_records(*, search: str, schedule_id: int | None = None) -> list[dict[str, Any]]:
     tasks = fetch_all("SELECT * FROM tasks ORDER BY id DESC")
     keyword = search.strip().lower()
     records: list[dict[str, Any]] = []
@@ -1435,6 +1549,11 @@ def query_success_accounts(*, page: int, page_size: int, search: str, schedule_i
                     **account,
                 }
             )
+    return records
+
+
+def query_success_accounts(*, page: int, page_size: int, search: str, schedule_id: int | None = None) -> dict[str, Any]:
+    records = collect_success_account_records(search=search, schedule_id=schedule_id)
     total = len(records)
     page_size = max(1, min(page_size, 100))
     total_pages = max(1, math.ceil(total / page_size)) if total else 1
@@ -2251,6 +2370,18 @@ class ApiKeyCreate(BaseModel):
 
 class SuccessAccountOAuthRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
+
+
+class SuccessAccountOAuthBatchItem(BaseModel):
+    task_id: int = Field(ge=1)
+    email: str = Field(min_length=3, max_length=320)
+
+
+class SuccessAccountOAuthBatchRequest(BaseModel):
+    items: list[SuccessAccountOAuthBatchItem] = Field(default_factory=list, max_length=5000)
+    select_all_filtered: bool = False
+    search: str = ""
+    schedule_id: int | None = None
 
 
 @dataclass
@@ -3410,6 +3541,14 @@ async def regenerate_task_success_account_oauth(task_id: int, payload: SuccessAc
     if not password:
         raise HTTPException(status_code=404, detail="The specified success account was not found in this task")
     result = regenerate_success_account_oauth_token(row, email, password)
+    return JSONResponse(result)
+
+
+@app.post("/api/success-accounts/oauth/batch")
+async def regenerate_success_accounts_oauth_batch_route(payload: SuccessAccountOAuthBatchRequest, request: Request) -> JSONResponse:
+    require_authenticated(request)
+    items = resolve_success_account_batch_items(payload)
+    result = regenerate_success_account_oauth_batch(items)
     return JSONResponse(result)
 
 

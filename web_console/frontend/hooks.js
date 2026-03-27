@@ -208,15 +208,17 @@ export function useTaskTiming(task, tr) {
         timerTone: 'idle',
       };
     }
-    const startValue = task.first_started_at || task.started_at || task.created_at;
-    const start = parseTimestamp(startValue);
+    const actualStartValue = task.first_started_at || task.started_at || '';
+    const pendingStartValue = (!actualStartValue && task.status === 'queued') ? task.created_at : '';
+    const durationStartValue = actualStartValue || pendingStartValue;
+    const start = parseTimestamp(durationStartValue);
     const end = parseTimestamp(task.finished_at) || Date.now();
     const duration = start ? formatDurationMs(end - start) : tr('task_duration_unknown');
     let durationLabel = tr('task_duration_unknown');
     if (start) {
-      if (task.status === 'queued' && !task.started_at && !task.first_started_at) {
+      if (task.status === 'queued' && !actualStartValue) {
         durationLabel = tr('task_duration_pending', { value: duration });
-      } else if (['running', 'stopping'].includes(task.status) || (!task.finished_at && (task.started_at || task.first_started_at))) {
+      } else if (['running', 'stopping'].includes(task.status) || (!task.finished_at && actualStartValue)) {
         durationLabel = tr('task_duration_running', { value: duration });
       } else {
         durationLabel = tr('task_duration_value', { value: duration });
@@ -224,7 +226,7 @@ export function useTaskTiming(task, tr) {
     }
     return {
       durationLabel,
-      startedAtLabel: startValue || tr('task_time_unknown'),
+      startedAtLabel: actualStartValue || tr('task_time_unknown'),
       finishedAtLabel: task.finished_at || tr('task_time_unknown'),
       timerTone: ['running', 'stopping'].includes(task.status) ? 'live' : task.status === 'queued' ? 'queued' : 'done',
     };
