@@ -929,6 +929,11 @@ export function ConsoleApp() {
     });
   }
 
+  async function handleRegenerateOAuthTokenFromList(item) {
+    await handleRegenerateOAuthToken({ id: item.task_id, platform: item.platform }, item);
+    await loadSuccessAccounts(successAccountsPage.page || 1);
+  }
+
   async function handleBackfillSuccessAccounts() {
     await withBusy('task-backfill-success-accounts', async () => {
       const result = await api('/api/tasks/backfill-success-accounts', { method: 'POST' });
@@ -1541,7 +1546,12 @@ export function ConsoleApp() {
                         {!item.cpamc_imported && item.cpamc_error ? <em className="status-pill status-pill--failed success-account-badge" title={item.cpamc_error}>{tr('cpamc_badge_failed')}</em> : null}
                       </td>
                       <td>
-                        <BusyButton type="button" className="ghost-btn" busy={isBusy(`success-account-cpamc-${item.task_id}-${item.email}`)} disabled={!item.token_json} onClick={() => handleRetrySuccessAccountCpamc(item)}>{tr('retry_cpamc_import')}</BusyButton>
+                        <div className="success-account-actions">
+                          {['chatgpt-register-v2', 'chatgpt-register-v3'].includes(item.platform) ? (
+                            <BusyButton type="button" className="ghost-btn" busy={isBusy(`task-regenerate-oauth-${item.task_id}`)} onClick={() => handleRegenerateOAuthTokenFromList(item)}>{tr('regenerate_oauth_token')}</BusyButton>
+                          ) : null}
+                          <BusyButton type="button" className="ghost-btn" busy={isBusy(`success-account-cpamc-${item.task_id}-${item.email}`)} disabled={!item.token_json} onClick={() => handleRetrySuccessAccountCpamc(item)}>{tr('retry_cpamc_import')}</BusyButton>
+                        </div>
                       </td>
                     </tr>
                   ))}
