@@ -25,13 +25,23 @@ const SECTION_TITLE_KEYS = {
   dashboard: 'section_overview',
   credentials: 'section_credentials',
   proxies: 'section_proxies',
+  'task-center': 'section_task_center',
   'create-task': 'section_tasks',
   'task-detail': 'section_task_detail',
+  'success-accounts': 'section_success_accounts',
   schedules: 'section_schedules',
   cpamc: 'cpamc_title',
   'api-keys': 'section_api',
   docs: 'section_docs',
 };
+
+const TASK_CENTER_TABS = [
+  ['overview', 'task_center_tab_overview'],
+  ['create', 'task_center_tab_create'],
+  ['detail', 'task_center_tab_detail'],
+  ['schedules', 'task_center_tab_schedules'],
+  ['success-accounts', 'task_center_tab_success_accounts'],
+];
 
 function normalizeStatePayload(payload) {
   return {
@@ -103,6 +113,12 @@ function SidebarIcon({ name }) {
       return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M4 7h16v4H4zM6 13h12v4H6zM8 3h8v2H8zM10 18h4v3h-4z" />
+        </svg>
+      );
+    case 'task-center':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M4 6h16v4H4zM4 14h7v6H4zM13 14h7v2h-7zM13 18h7v2h-7z" />
         </svg>
       );
     case 'create-task':
@@ -356,6 +372,71 @@ Authorization: Bearer YOUR_API_KEY`,
   };
 }
 
+function parseTimestamp(value) {
+  if (!value) {
+    return null;
+  }
+  const normalized = String(value).replace(' ', 'T');
+  const timestamp = Date.parse(normalized);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function formatDurationMs(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return '0s';
+  }
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (!parts.length || (!days && !hours && seconds)) parts.push(`${seconds}s`);
+  return parts.slice(0, 3).join(' ');
+}
+
+function getTaskDurationLabel(task, tr) {
+  if (!task) {
+    return tr('task_duration_unknown');
+  }
+  const start = parseTimestamp(task.started_at || task.created_at);
+  if (!start) {
+    return tr('task_duration_unknown');
+  }
+  const end = parseTimestamp(task.finished_at) || Date.now();
+  const duration = formatDurationMs(end - start);
+  if (['queued'].includes(task.status) && !task.started_at) {
+    return tr('task_duration_pending', { value: duration });
+  }
+  if (['running', 'stopping'].includes(task.status) || (!task.finished_at && task.started_at)) {
+    return tr('task_duration_running', { value: duration });
+  }
+  return tr('task_duration_value', { value: duration });
+}
+
+function formatTimestampLabel(value, tr) {
+  if (!value) {
+    return tr('task_time_unknown');
+  }
+  return String(value);
+}
+
+function getTaskTimerTone(task) {
+  if (!task) {
+    return 'idle';
+  }
+  if (['running', 'stopping'].includes(task.status)) {
+    return 'live';
+  }
+  if (task.status === 'queued') {
+    return 'queued';
+  }
+  return 'done';
+}
+
 export function ConsoleApp() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1');
@@ -364,12 +445,16 @@ export function ConsoleApp() {
   const [loadError, setLoadError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [flashNotice, setFlashNotice] = useState(null);
+  const [taskCenterTab, setTaskCenterTab] = useState('overview');
   const [taskListMode, setTaskListMode] = useState('task');
   const [taskFilterStatus, setTaskFilterStatus] = useState('all');
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState(null);
   const [successAccountsPage, setSuccessAccountsPage] = useState({ items: [], page: 1, page_size: 20, total: 0, total_pages: 1 });
   const [successAccountsSearch, setSuccessAccountsSearch] = useState('');
+  const [successAccountsScheduleFilter, setSuccessAccountsScheduleFilter] = useState('all');
+  const [successAccountsAutoRefresh, setSuccessAccountsAutoRefresh] = useState(true);
+  const [successAccountsUpdatedAt, setSuccessAccountsUpdatedAt] = useState('');
   const [flashKey, setFlashKey] = useState('');
   const [modalState, setModalState] = useState(null);
   const [statePayload, setStatePayload] = useState({
@@ -434,6 +519,10 @@ export function ConsoleApp() {
     : normalTasks.filter((task) => task.status === taskFilterStatus);
   const visibleTask = filteredTasks.find((item) => item.id === selectedTaskId) || filteredTasks[0] || null;
   const visibleSchedule = statePayload.schedules.find((item) => item.id === selectedScheduleId) || statePayload.schedules[0] || null;
+  const runningTasks = normalTasks.filter((task) => ['queued', 'running', 'stopping'].includes(task.status));
+  const finishedTasks = normalTasks.filter((task) => ['completed', 'partial'].includes(task.status));
+  const failedTasks = normalTasks.filter((task) => ['failed', 'stopped', 'interrupted'].includes(task.status));
+  const tasksWithResults = normalTasks.filter((task) => Number(task.success_accounts_count || task.results_count || 0) > 0);
   const currentPlatformSpec = statePayload.platforms[taskDraft.platform] || {};
   const browserTemplates = statePayload.browserAutomationTemplates || BROWSER_AUTOMATION_TEMPLATES || {};
   const selectedBrowserTemplate = browserTemplates[taskDraft.platform_options?.workflow_template] || null;
@@ -441,8 +530,9 @@ export function ConsoleApp() {
   const topbarBreadcrumbs = [
     tr('topbar_workspace'),
     ...(activeSection === 'dashboard' ? [] : [currentSectionLabel]),
-    ...(activeSection === 'task-detail' && taskListMode === 'task' && visibleTask ? [getTaskDisplayName(visibleTask)] : []),
-    ...(activeSection === 'task-detail' && taskListMode === 'schedule' && visibleSchedule ? [`${visibleSchedule.name} ${tr('schedule_tag_suffix')}`] : []),
+    ...(activeSection === 'task-center' ? [tr(TASK_CENTER_TABS.find(([key]) => key === taskCenterTab)?.[1] || 'task_center_tab_overview')] : []),
+    ...((activeSection === 'task-detail' || (activeSection === 'task-center' && taskCenterTab === 'detail')) && taskListMode === 'task' && visibleTask ? [getTaskDisplayName(visibleTask)] : []),
+    ...((activeSection === 'task-detail' || (activeSection === 'task-center' && taskCenterTab === 'detail')) && taskListMode === 'schedule' && visibleSchedule ? [`${visibleSchedule.name} ${tr('schedule_tag_suffix')}`] : []),
   ];
   const logoutLabel = tr('nav_logout');
 
@@ -500,7 +590,33 @@ export function ConsoleApp() {
 
   useEffect(() => {
     loadSuccessAccounts(1, successAccountsSearch).catch(() => {});
-  }, [successAccountsSearch]);
+  }, [successAccountsSearch, successAccountsScheduleFilter]);
+
+  useEffect(() => {
+    if (!(activeSection === 'task-center' && taskCenterTab === 'success-accounts' && successAccountsAutoRefresh)) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      loadSuccessAccounts(successAccountsPage.page || 1, successAccountsSearch, successAccountsScheduleFilter).catch(() => {});
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [activeSection, taskCenterTab, successAccountsAutoRefresh, successAccountsPage.page, successAccountsSearch, successAccountsScheduleFilter]);
+
+  useEffect(() => {
+    if (activeSection === 'create-task') {
+      setActiveSection('task-center');
+      setTaskCenterTab('create');
+    } else if (activeSection === 'task-detail') {
+      setActiveSection('task-center');
+      setTaskCenterTab('detail');
+    } else if (activeSection === 'success-accounts') {
+      setActiveSection('task-center');
+      setTaskCenterTab('success-accounts');
+    } else if (activeSection === 'schedules') {
+      setActiveSection('task-center');
+      setTaskCenterTab('schedules');
+    }
+  }, [activeSection]);
 
   async function refreshState({ initial = false } = {}) {
     const payload = normalizeStatePayload(await api('/api/state'));
@@ -585,6 +701,25 @@ export function ConsoleApp() {
 
   function switchSection(sectionId) {
     setActiveSection(sectionId);
+    if (sectionId === 'task-center') {
+      setTaskCenterTab('overview');
+    }
+    if (isMobileLayout()) {
+      setSidebarOpen(false);
+    }
+  }
+
+  function openTaskCenter(tab, options = {}) {
+    setActiveSection('task-center');
+    setTaskCenterTab(tab);
+    if (options.taskId != null) {
+      setSelectedTaskId(Number(options.taskId));
+      setTaskListMode('task');
+    }
+    if (options.scheduleId != null) {
+      setSelectedScheduleId(Number(options.scheduleId));
+      setTaskListMode('schedule');
+    }
     if (isMobileLayout()) {
       setSidebarOpen(false);
     }
@@ -662,16 +797,12 @@ export function ConsoleApp() {
         }),
       });
       await refreshState();
-      const shouldOpenTask = await openModal({
-        title: tr('created_task_modal_title'),
-        message: tr('created_task_confirm', { id: result.id }),
-        confirmLabel: tr('created_task_modal_confirm'),
-        cancelLabel: tr('created_task_modal_cancel'),
+      setSelectedTaskId(Number(result.id));
+      setFlashNotice({
+        type: 'success',
+        message: tr('created_task_opened', { id: result.id }),
       });
-      if (shouldOpenTask) {
-        setSelectedTaskId(Number(result.id));
-        setActiveSection('task-detail');
-      }
+      openTaskCenter('detail', { taskId: result.id });
     });
   }
 
@@ -880,10 +1011,14 @@ export function ConsoleApp() {
     });
   }
 
-  async function loadSuccessAccounts(page = 1, search = successAccountsSearch) {
+  async function loadSuccessAccounts(page = 1, search = successAccountsSearch, scheduleFilter = successAccountsScheduleFilter) {
     const params = new URLSearchParams({ page: String(page), page_size: '20', search });
+    if (scheduleFilter !== 'all') {
+      params.set('schedule_id', scheduleFilter);
+    }
     const payload = await api(`/api/success-accounts?${params.toString()}`);
     setSuccessAccountsPage(payload);
+    setSuccessAccountsUpdatedAt(new Date().toLocaleTimeString());
   }
 
   async function handlePreviewSuccessAccounts(task) {
@@ -1106,7 +1241,7 @@ export function ConsoleApp() {
                 className="simple-row"
                 onClick={() => {
                   setSelectedTaskId(task.id);
-                  setActiveSection('task-detail');
+                  openTaskCenter('detail', { taskId: task.id });
                 }}
               >
                 <span>{getTaskDisplayName(task)}</span>
@@ -1499,6 +1634,9 @@ export function ConsoleApp() {
   }
 
   function renderSuccessAccounts() {
+    const scheduleFilterLabel = successAccountsScheduleFilter === 'all'
+      ? tr('success_accounts_filter_all_schedules')
+      : (statePayload.schedules.find((item) => String(item.id) === String(successAccountsScheduleFilter))?.name || tr('success_accounts_filter_unknown_schedule'));
     return (
       <section className="section-card active">
         <article className="panel">
@@ -1507,14 +1645,32 @@ export function ConsoleApp() {
               <h3>{tr('section_success_accounts')}</h3>
               <span>{tr('success_accounts_page_desc')}</span>
             </div>
+            <div className="success-accounts-statusbar">
+              <span className="subtle">{tr('success_accounts_last_updated', { value: successAccountsUpdatedAt || '--:--:--' })}</span>
+              <label className={`cpamc-switch compact ${successAccountsAutoRefresh ? 'is-enabled' : ''}`.trim()}>
+                <input type="checkbox" checked={successAccountsAutoRefresh} onChange={(event) => setSuccessAccountsAutoRefresh(event.target.checked)} />
+                <span className="cpamc-switch-track" aria-hidden="true">
+                  <span className="cpamc-switch-thumb" />
+                </span>
+                <span className="cpamc-switch-label">{tr('success_accounts_auto_refresh')}</span>
+              </label>
+            </div>
           </div>
           <div className="success-accounts-toolbar">
             <label className="field-card success-search-field">
               <span>{tr('search_success_accounts')}</span>
               <input value={successAccountsSearch} placeholder={tr('search_success_accounts_placeholder')} onChange={(event) => setSuccessAccountsSearch(event.target.value)} />
             </label>
+            <label className="field-card success-schedule-filter-field">
+              <span>{tr('success_accounts_filter_schedule')}</span>
+              <select value={successAccountsScheduleFilter} onChange={(event) => setSuccessAccountsScheduleFilter(event.target.value)}>
+                <option value="all">{tr('success_accounts_filter_all_schedules')}</option>
+                {statePayload.schedules.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
             <BusyButton type="button" busy={isBusy('task-backfill-success-accounts')} onClick={handleBackfillSuccessAccounts}>{tr('extract_history_success_accounts')}</BusyButton>
           </div>
+          {successAccountsScheduleFilter !== 'all' ? <p className="field-tip">{tr('success_accounts_filter_hint', { value: scheduleFilterLabel })}</p> : null}
           <div className="success-account-table-wrap">
             {successAccountsPage.items.length ? (
               <table className="doc-table success-account-table">
@@ -1522,6 +1678,7 @@ export function ConsoleApp() {
                   <tr>
                     <th>{tr('table_task')}</th>
                     <th>{tr('table_account')}</th>
+                    <th>{tr('table_source')}</th>
                     <th>{tr('table_status')}</th>
                     <th>{tr('table_action')}</th>
                   </tr>
@@ -1530,7 +1687,7 @@ export function ConsoleApp() {
                   {successAccountsPage.items.map((item) => (
                     <tr key={`${item.task_id}-${item.email}`}>
                       <td>
-                        <button type="button" className="linkish-button" onClick={() => { setSelectedTaskId(item.task_id); setActiveSection('task-detail'); }}>
+                        <button type="button" className="linkish-button" onClick={() => openTaskCenter('detail', { taskId: item.task_id })}>
                           {item.task_name} (#{item.task_id})
                         </button>
                         <div className="table-subline">{item.platform}</div>
@@ -1540,6 +1697,15 @@ export function ConsoleApp() {
                           <strong>{item.email}</strong>
                           <span>{item.password}</span>
                         </div>
+                      </td>
+                      <td>
+                        {item.schedule_id ? (
+                          <button type="button" className="linkish-button" onClick={() => openTaskCenter('schedules', { scheduleId: item.schedule_id })}>
+                            {tr('success_accounts_source_schedule', { id: item.schedule_id })}
+                          </button>
+                        ) : (
+                          <span className="table-subline">{tr('success_accounts_source_manual')}</span>
+                        )}
                       </td>
                       <td>
                         {item.cpamc_imported ? <em className="status-pill status-pill--linked success-account-badge">{tr('cpamc_badge_imported')}</em> : null}
@@ -1563,6 +1729,96 @@ export function ConsoleApp() {
               <button type="button" disabled={(successAccountsPage.page || 1) <= 1} onClick={() => loadSuccessAccounts((successAccountsPage.page || 1) - 1)}>{tr('pagination_prev')}</button>
               <button type="button" disabled={(successAccountsPage.page || 1) >= (successAccountsPage.total_pages || 1)} onClick={() => loadSuccessAccounts((successAccountsPage.page || 1) + 1)}>{tr('pagination_next')}</button>
             </div>
+          </div>
+        </article>
+      </section>
+    );
+  }
+
+  function renderTaskCenterOverview() {
+    const latestTask = normalTasks[0] || null;
+    const latestSchedule = statePayload.schedules[0] || null;
+    return (
+      <section className="task-center-overview">
+        <div className="metric-grid task-center-metrics">
+          <article className="metric-card"><strong>{runningTasks.length}</strong><span>{tr('task_center_metric_running')}</span></article>
+          <article className="metric-card"><strong>{finishedTasks.length}</strong><span>{tr('task_center_metric_finished')}</span></article>
+          <article className="metric-card"><strong>{failedTasks.length}</strong><span>{tr('task_center_metric_attention')}</span></article>
+          <article className="metric-card"><strong>{statePayload.schedules.filter((item) => item.enabled).length}</strong><span>{tr('task_center_metric_schedules')}</span></article>
+        </div>
+        <div className="grid-two task-center-overview-grid">
+          <article className="panel compact">
+            <div className="panel-head">
+              <div>
+                <h3>{tr('task_center_quick_actions_title')}</h3>
+                <span>{tr('task_center_quick_actions_desc')}</span>
+              </div>
+            </div>
+            <div className="task-center-quick-grid">
+              <button type="button" className="task-center-action" onClick={() => openTaskCenter('create')}>
+                <strong>{tr('task_center_action_create')}</strong>
+                <span>{tr('task_center_action_create_desc')}</span>
+              </button>
+              <button type="button" className="task-center-action" onClick={() => openTaskCenter('detail', { taskId: latestTask?.id })} disabled={!latestTask}>
+                <strong>{tr('task_center_action_detail')}</strong>
+                <span>{latestTask ? tr('task_center_action_detail_desc', { id: latestTask.id }) : tr('empty_tasks')}</span>
+              </button>
+              <button type="button" className="task-center-action" onClick={() => openTaskCenter('schedules', { scheduleId: latestSchedule?.id })}>
+                <strong>{tr('task_center_action_schedule')}</strong>
+                <span>{tr('task_center_action_schedule_desc')}</span>
+              </button>
+              <button type="button" className="task-center-action" onClick={() => openTaskCenter('success-accounts')}>
+                <strong>{tr('task_center_action_results')}</strong>
+                <span>{tr('task_center_action_results_desc')}</span>
+              </button>
+            </div>
+          </article>
+          <article className="panel compact">
+            <div className="panel-head">
+              <div>
+                <h3>{tr('task_center_health_title')}</h3>
+                <span>{tr('task_center_health_desc')}</span>
+              </div>
+            </div>
+            <div className="simple-list task-center-health-list">
+              <div className="simple-row task-center-health-item">
+                <span>{tr('task_center_health_credentials')}</span>
+                <span>{mailCredentials.length ? tr('task_center_health_ready') : tr('task_center_health_missing')}</span>
+              </div>
+              <div className="simple-row task-center-health-item">
+                <span>{tr('task_center_health_proxies')}</span>
+                <span>{statePayload.proxies.length ? tr('task_center_health_ready') : tr('task_center_health_optional')}</span>
+              </div>
+              <div className="simple-row task-center-health-item">
+                <span>{tr('task_center_health_results')}</span>
+                <span>{tasksWithResults.length}</span>
+              </div>
+              <div className="simple-row task-center-health-item">
+                <span>{tr('task_center_health_cpamc')}</span>
+                <span>{statePayload.cpamc?.enabled ? (statePayload.cpamc?.linked ? tr('cpamc_status_linked') : tr('cpamc_status_unlinked')) : tr('cpamc_status_disabled')}</span>
+              </div>
+            </div>
+          </article>
+        </div>
+        <article className="panel compact">
+          <div className="panel-head">
+            <div>
+              <h3>{tr('task_center_recent_title')}</h3>
+              <span>{tr('task_center_recent_desc')}</span>
+            </div>
+          </div>
+          <div className="simple-list">
+            {normalTasks.length ? normalTasks.slice(0, 6).map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                className="simple-row"
+                onClick={() => openTaskCenter('detail', { taskId: task.id })}
+              >
+                <span>{getTaskDisplayName(task)}</span>
+                <span>{task.results_count}/{task.quantity} | {statusLabel(task.status)}</span>
+              </button>
+            )) : <p className="empty">{tr('empty_tasks')}</p>}
           </div>
         </article>
       </section>
@@ -1612,6 +1868,7 @@ export function ConsoleApp() {
                     </div>
                     <div className="task-side-item__meta">
                       <span className="task-side-item__count">{task.results_count}/{task.quantity}</span>
+                      <span className="task-side-item__count">{getTaskDurationLabel(task, tr)}</span>
                       <span className={`status-pill status-pill--${task.status}`}>{statusLabel(task.status)}</span>
                     </div>
                   </button>
@@ -1623,12 +1880,13 @@ export function ConsoleApp() {
                         <strong className="task-side-item__name">{schedule.name} {tr('schedule_tag_suffix')}</strong>
                         <span className="task-side-item__id">#{schedule.id}</span>
                       </div>
-                      <div className="task-side-item__meta">
-                        <span className="task-side-item__count">{detail?.completedRuns || 0} {tr('schedule_runs_short')}</span>
-                        <span className={`status-pill ${schedule.enabled ? 'status-pill--linked' : 'status-pill--disabled'}`.trim()}>
-                          {schedule.enabled ? tr('enable') : tr('disable')}
-                        </span>
-                      </div>
+                    <div className="task-side-item__meta">
+                      <span className="task-side-item__count">{detail?.completedRuns || 0} {tr('schedule_runs_short')}</span>
+                      <span className="task-side-item__count">{detail?.latestTask ? getTaskDurationLabel(detail.latestTask, tr) : tr('task_duration_unknown')}</span>
+                      <span className={`status-pill ${schedule.enabled ? 'status-pill--linked' : 'status-pill--disabled'}`.trim()}>
+                        {schedule.enabled ? tr('enable') : tr('disable')}
+                      </span>
+                    </div>
                     </button>
                   );
                 }) : <p className="empty">{tr('empty_schedules')}</p>}
@@ -1647,6 +1905,11 @@ export function ConsoleApp() {
                       completed: visibleTask.results_count,
                       status: statusLabel(visibleTask.status),
                     })}</p>
+                    <div className={`task-live-timer task-live-timer--${getTaskTimerTone(visibleTask)}`.trim()}>
+                      <span className="task-live-timer__dot" aria-hidden="true" />
+                      <strong>{getTaskDurationLabel(visibleTask, tr)}</strong>
+                      <span>{tr('task_live_timer_hint')}</span>
+                    </div>
                   </div>
                   {scheduleSummary ? (
                     <aside className="schedule-summary-card">
@@ -1657,10 +1920,29 @@ export function ConsoleApp() {
                         <span>{tr('schedule_target_quantity', { value: scheduleSummary.todayTask?.quantity ?? scheduleSummary.schedule.quantity })}</span>
                         <span>{tr('schedule_completed_quantity', { value: scheduleSummary.todayTask?.results_count ?? 0 })}</span>
                         <span>{tr('schedule_today_status', { value: scheduleSummary.todayTask ? statusLabel(scheduleSummary.todayTask.status) : tr('schedule_today_none') })}</span>
+                        <span>{tr('task_duration_label', { value: scheduleSummary.todayTask ? getTaskDurationLabel(scheduleSummary.todayTask, tr) : tr('task_duration_unknown') })}</span>
                         <span>{tr('schedule_completed_runs', { value: scheduleSummary.completedRuns })}</span>
                       </div>
                     </aside>
                   ) : null}
+                </div>
+                <div className="task-summary-grid">
+                  <article className="task-summary-card">
+                    <span>{tr('task_created_time')}</span>
+                    <strong>{formatTimestampLabel(visibleTask.created_at, tr)}</strong>
+                  </article>
+                  <article className="task-summary-card">
+                    <span>{tr('task_started_time')}</span>
+                    <strong>{formatTimestampLabel(visibleTask.started_at, tr)}</strong>
+                  </article>
+                  <article className="task-summary-card">
+                    <span>{tr('task_finished_time')}</span>
+                    <strong>{formatTimestampLabel(visibleTask.finished_at, tr)}</strong>
+                  </article>
+                  <article className="task-summary-card task-summary-card--accent">
+                    <span>{tr('task_total_duration')}</span>
+                    <strong>{getTaskDurationLabel(visibleTask, tr)}</strong>
+                  </article>
                 </div>
                 <div className="task-actions">
                   <BusyButton type="button" busy={isBusy(`task-rerun-${visibleTask.id}`)} disabled={['queued', 'running', 'stopping'].includes(visibleTask.status)} onClick={() => handleRerunTask(visibleTask)}>{tr('rerun_task') || '重新执行'}</BusyButton>
@@ -1722,7 +2004,7 @@ export function ConsoleApp() {
                       {visibleSchedule.platform} | {tr('schedule_target_quantity', { value: visibleSchedule.quantity })} | {tr('schedule_completed_quantity', { value: scheduleDetail?.todayTask?.results_count ?? 0 })} | {tr('schedule_today_status', { value: scheduleDetail?.todayTask ? statusLabel(scheduleDetail.todayTask.status) : tr('schedule_today_none') })}
                     </p>
                     <p className="notes">
-                      {tr('schedule_completed_runs', { value: scheduleDetail?.completedRuns ?? 0 })} | {visibleSchedule.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')} | {visibleSchedule.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}
+                      {tr('schedule_completed_runs', { value: scheduleDetail?.completedRuns ?? 0 })} | {tr('task_duration_label', { value: scheduleDetail?.todayTask ? getTaskDurationLabel(scheduleDetail.todayTask, tr) : tr('task_duration_unknown') })} | {visibleSchedule.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')} | {visibleSchedule.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}
                     </p>
                   </div>
                 </div>
@@ -1813,28 +2095,72 @@ export function ConsoleApp() {
               </div>
             </div>
             <div className="entity-list">
-              {statePayload.schedules.length ? statePayload.schedules.map((item) => (
-                <article className="entity-card" key={item.id}>
-                  <div>
-                    <h3>{item.name}</h3>
-                    <p className="meta">{tr('schedule_meta', {
-                      platform: item.platform,
-                      time: item.time_of_day,
-                      quantity: item.quantity,
-                      enabled: item.enabled ? tr('enable') : tr('disable'),
-                    })}</p>
-                    <p className="notes">{item.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')}</p>
-                    <p className="notes">{item.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}</p>
-                  </div>
-                  <div className="entity-actions">
-                    <BusyButton type="button" busy={isBusy(`schedule-toggle-${item.id}`)} onClick={() => handleToggleSchedule(item)}>{item.enabled ? tr('disable') : tr('enable')}</BusyButton>
-                    <BusyButton type="button" className="danger" busy={isBusy(`schedule-delete-${item.id}`)} onClick={() => handleDeleteSchedule(item)}>{tr('delete')}</BusyButton>
-                  </div>
-                </article>
-              )) : <p className="empty">{tr('empty_schedules')}</p>}
+              {statePayload.schedules.length ? statePayload.schedules.map((item) => {
+                const detail = getScheduleDetail(item);
+                return (
+                  <article className="entity-card" key={item.id}>
+                    <div>
+                      <h3>{item.name}</h3>
+                      <p className="meta">{tr('schedule_meta', {
+                        platform: item.platform,
+                        time: item.time_of_day,
+                        quantity: item.quantity,
+                        enabled: item.enabled ? tr('enable') : tr('disable'),
+                      })}</p>
+                      <p className="notes">{tr('task_duration_label', { value: detail?.latestTask ? getTaskDurationLabel(detail.latestTask, tr) : tr('task_duration_unknown') })}</p>
+                      <p className="notes">{item.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')}</p>
+                      <p className="notes">{item.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}</p>
+                    </div>
+                    <div className="entity-actions">
+                      <BusyButton type="button" busy={isBusy(`schedule-toggle-${item.id}`)} onClick={() => handleToggleSchedule(item)}>{item.enabled ? tr('disable') : tr('enable')}</BusyButton>
+                      <BusyButton type="button" className="danger" busy={isBusy(`schedule-delete-${item.id}`)} onClick={() => handleDeleteSchedule(item)}>{tr('delete')}</BusyButton>
+                    </div>
+                  </article>
+                );
+              }) : <p className="empty">{tr('empty_schedules')}</p>}
             </div>
           </article>
         </div>
+      </section>
+    );
+  }
+
+  function renderTaskCenter() {
+    const currentTab = taskCenterTab;
+    return (
+      <section className="section-card active task-center-shell">
+        <article className="panel task-center-header-panel">
+          <div className="task-center-header">
+            <div>
+              <p className="eyebrow">{tr('section_task_center')}</p>
+              <h2>{tr('task_center_title')}</h2>
+              <p className="subtle">{tr('task_center_desc')}</p>
+            </div>
+            <div className="task-center-header-actions">
+              <button type="button" className="ghost-btn" onClick={() => openTaskCenter('schedules')}>{tr('task_center_header_schedule')}</button>
+              <button type="button" onClick={() => openTaskCenter('create')}>{tr('task_center_header_create')}</button>
+            </div>
+          </div>
+          <div className="task-center-tabs" role="tablist" aria-label={tr('section_task_center')}>
+            {TASK_CENTER_TABS.map(([key, labelKey]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={currentTab === key ? 'true' : 'false'}
+                className={`task-center-tab ${currentTab === key ? 'is-active' : ''}`.trim()}
+                onClick={() => setTaskCenterTab(key)}
+              >
+                {tr(labelKey)}
+              </button>
+            ))}
+          </div>
+        </article>
+        {currentTab === 'overview' ? renderTaskCenterOverview() : null}
+        {currentTab === 'create' ? <div className="task-center-panel-wrap">{renderCreateTask()}</div> : null}
+        {currentTab === 'detail' ? <div className="task-center-panel-wrap">{renderTaskDetail()}</div> : null}
+        {currentTab === 'schedules' ? <div className="task-center-panel-wrap">{renderSchedules()}</div> : null}
+        {currentTab === 'success-accounts' ? <div className="task-center-panel-wrap">{renderSuccessAccounts()}</div> : null}
       </section>
     );
   }
@@ -2294,14 +2620,16 @@ Authorization: Bearer YOUR_API_KEY`,
         return renderCredentials();
       case 'proxies':
         return renderProxies();
+      case 'task-center':
+        return renderTaskCenter();
       case 'create-task':
-        return renderCreateTask();
+        return renderTaskCenter();
       case 'task-detail':
-        return renderTaskDetail();
+        return renderTaskCenter();
       case 'success-accounts':
-        return renderSuccessAccounts();
+        return renderTaskCenter();
       case 'schedules':
-        return renderSchedules();
+        return renderTaskCenter();
       case 'cpamc':
         return renderCpamc();
       case 'api-keys':
