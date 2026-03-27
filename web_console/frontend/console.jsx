@@ -895,9 +895,14 @@ export function ConsoleApp() {
         body: JSON.stringify({ email }),
       });
       await refreshState();
+      const cpamcMessage = result.cpamc
+        ? result.cpamc.imported
+          ? tr('regenerate_oauth_cpamc_success')
+          : tr('regenerate_oauth_cpamc_failed', { error: result.cpamc.error || 'unknown error' })
+        : '';
       await openModal({
         title: tr('regenerate_oauth_result_title'),
-        message: `${tr('regenerate_oauth_success', { email: result.email })}\n\nJSON: ${result.token_json}`,
+        message: `${tr('regenerate_oauth_success', { email: result.email })}${cpamcMessage ? `\n${cpamcMessage}` : ''}\n\nJSON: ${result.token_json}`,
         confirmLabel: tr('modal_close'),
       });
     });
@@ -1578,6 +1583,8 @@ export function ConsoleApp() {
                           <div className="success-account-copy">
                             <strong>{account.email}</strong>
                             <span>{account.password}</span>
+                            {account.cpamc_imported ? <em className="status-pill status-pill--linked success-account-badge">{tr('cpamc_badge_imported')}</em> : null}
+                            {!account.cpamc_imported && account.cpamc_error ? <em className="status-pill status-pill--failed success-account-badge" title={account.cpamc_error}>{tr('cpamc_badge_failed')}</em> : null}
                           </div>
                           {['chatgpt-register-v2', 'chatgpt-register-v3'].includes(visibleTask.platform) ? (
                             <BusyButton type="button" className="ghost-btn" busy={isBusy(`task-regenerate-oauth-${visibleTask.id}`)} onClick={() => handleRegenerateOAuthToken(visibleTask, account)}>{tr('regenerate_oauth_token')}</BusyButton>

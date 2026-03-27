@@ -251,6 +251,10 @@ UI_TRANSLATIONS = {
         "regenerate_oauth_prompt": "将为 {email} 重新执行 OAuth 登录并写入 tokens 目录。继续吗？",
         "regenerate_oauth_result_title": "OAuth Token 获取结果",
         "regenerate_oauth_success": "已为 {email} 重新获取 OAuth Token。",
+        "regenerate_oauth_cpamc_success": "并已导入到 CPAMC。",
+        "regenerate_oauth_cpamc_failed": "CPAMC 导入失败：{error}",
+        "cpamc_badge_imported": "已导入 CPAMC",
+        "cpamc_badge_failed": "导入失败",
         "extract_history_success_accounts": "提取历史成功账号",
         "extract_history_success_accounts_done": "已扫描 {updated} 个任务，其中 {non_empty} 个任务提取到了成功账号。",
         "section_schedules": "定时任务",
@@ -498,6 +502,10 @@ UI_TRANSLATIONS = {
         "regenerate_oauth_prompt": "Run OAuth login again for {email} and write fresh tokens into the task tokens directory?",
         "regenerate_oauth_result_title": "OAuth token result",
         "regenerate_oauth_success": "Regenerated OAuth token for {email}.",
+        "regenerate_oauth_cpamc_success": "Imported to CPAMC as well.",
+        "regenerate_oauth_cpamc_failed": "CPAMC import failed: {error}",
+        "cpamc_badge_imported": "Imported to CPAMC",
+        "cpamc_badge_failed": "Import failed",
         "extract_history_success_accounts": "Extract historical success accounts",
         "extract_history_success_accounts_done": "Scanned {updated} tasks and extracted successful accounts from {non_empty} tasks.",
         "section_schedules": "Schedules",
@@ -1087,6 +1095,36 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
 
         token_manager.save_tokens(email, tokens)
         token_json_path = output_dir / "tokens" / f"{email}.json"
+        cpamc_result: dict[str, Any] | None = None
+        cpamc_settings = get_cpamc_settings()
+        if cpamc_is_ready(cpamc_settings):
+            try:
+                response = cpamc_request(
+                    "POST",
+                    base_url=str(cpamc_settings["base_url"]),
+                    management_key=str(cpamc_settings["management_key"]),
+                    path=f"auth-files?name={quote(token_json_path.name)}",
+                    data=token_json_path.read_bytes(),
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.ok:
+                    cpamc_result = {"imported": True, "name": token_json_path.name}
+                    append_task_console(task, f"Imported regenerated OAuth token to CPAMC for {email}.")
+                else:
+                    cpamc_result = {"imported": False, "error": parse_cpamc_error(response), "name": token_json_path.name}
+                    append_task_console(task, f"Failed to import regenerated OAuth token to CPAMC for {email}: {cpamc_result['error']}")
+            except Exception as exc:
+                cpamc_result = {"imported": False, "error": str(exc), "name": token_json_path.name}
+                append_task_console(task, f"Failed to import regenerated OAuth token to CPAMC for {email}: {exc}")
+        statuses = load_success_account_statuses(task)
+        if cpamc_result:
+            statuses[email] = {
+                "cpamc_imported": bool(cpamc_result.get("imported")),
+                "cpamc_error": str(cpamc_result.get("error") or ""),
+                "token_json": str(token_json_path),
+                "updated_at": now_iso(),
+            }
+            save_success_account_statuses(task, statuses)
         append_task_console(task, f"OAuth token regeneration succeeded for {email}.")
         return {
             "ok": True,
@@ -1094,6 +1132,7 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
             "token_json": str(token_json_path),
             "access_token": tokens.get("access_token") or "",
             "refresh_token": tokens.get("refresh_token") or "",
+            "cpamc": cpamc_result,
         }
     except HTTPException:
         raise
@@ -1103,7 +1142,21 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
 
 
 def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, str]]:
-    return [{"email": email, "password": password} for email, password in load_success_accounts(task)]
+    statuses = load_success_account_statuses(task)
+    items: list[dict[str, Any]] = []
+    for email, password in load_success_accounts(task):
+        status = statuses.get(email, {})
+        items.append(
+            {
+                "email": email,
+                "password": password,
+                "cpamc_imported": bool(status.get("cpamc_imported")),
+                "cpamc_error": str(status.get("cpamc_error") or ""),
+                "token_json": str(status.get("token_json") or ""),
+                "updated_at": str(status.get("updated_at") or ""),
+            }
+        )
+    return items
 
 
 def import_task_files_to_cpamc(
@@ -1349,6 +1402,7 @@ def task_paths(task: sqlite3.Row | dict[str, Any]) -> dict[str, Path]:
         "console_path": Path(task["console_path"]),
         "results_file": results_file,
         "success_accounts_file": task_dir / "output" / "success_accounts.txt",
+        "success_accounts_status_file": task_dir / "output" / "success_accounts_status.json",
         "archive_path": archive_path,
     }
 
@@ -1432,6 +1486,29 @@ def load_success_accounts(task: sqlite3.Row | dict[str, Any]) -> list[tuple[str,
             seen.add(key)
             accounts.append((email, password))
     return accounts
+
+
+def load_success_account_statuses(task: sqlite3.Row | dict[str, Any]) -> dict[str, dict[str, Any]]:
+    path = task_paths(task)["success_accounts_status_file"]
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for key, value in payload.items():
+        if isinstance(key, str) and isinstance(value, dict):
+            result[key] = value
+    return result
+
+
+def save_success_account_statuses(task: sqlite3.Row | dict[str, Any], statuses: dict[str, dict[str, Any]]) -> None:
+    path = task_paths(task)["success_accounts_status_file"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(statuses, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def backfill_all_success_accounts() -> dict[str, int]:
