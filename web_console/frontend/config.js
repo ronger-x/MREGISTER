@@ -8,6 +8,7 @@ export const NAV_ITEMS = [
   ['proxies', 'nav_proxies'],
   ['create-task', 'nav_create_task'],
   ['task-detail', 'nav_task_detail'],
+  ['success-accounts', 'nav_success_accounts'],
   ['schedules', 'nav_schedules'],
   ['cpamc', 'cpamc_title'],
   ['api-keys', 'nav_api_keys'],

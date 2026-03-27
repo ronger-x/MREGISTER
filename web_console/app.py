@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import shutil
@@ -168,6 +169,7 @@ UI_TRANSLATIONS = {
         "nav_proxies": "代理",
         "nav_create_task": "新建任务",
         "nav_task_detail": "任务详情",
+        "nav_success_accounts": "成功账号",
         "nav_schedules": "定时任务",
         "nav_api_keys": "API 接口",
         "nav_docs": "API文档",
@@ -176,6 +178,7 @@ UI_TRANSLATIONS = {
         "open_sidebar": "打开侧边栏",
         "close_sidebar": "关闭侧边栏",
         "section_overview": "总览与默认配置",
+        "section_success_accounts": "成功账号",
         "panel_defaults_title": "默认设置",
         "panel_defaults_desc": "API 创建任务时会优先使用这里的默认凭据和默认代理。",
         "default_gptmail": "默认 GPTMail",
@@ -243,6 +246,7 @@ UI_TRANSLATIONS = {
         "task_list_mode_task": "普通任务",
         "task_list_mode_schedule": "定时任务",
         "console_title": "实时控制台",
+        "loading": "加载中...",
         "success_accounts_title": "成功账号",
         "success_accounts_empty": "当前还没有可提取的成功账号。",
         "preview_success_accounts": "预览成功账号",
@@ -257,6 +261,19 @@ UI_TRANSLATIONS = {
         "cpamc_badge_failed": "导入失败",
         "extract_history_success_accounts": "提取历史成功账号",
         "extract_history_success_accounts_done": "已扫描 {updated} 个任务，其中 {non_empty} 个任务提取到了成功账号。",
+        "success_accounts_page_desc": "集中查看所有任务提取出的成功账号，支持查询、分页和按账号重试导入 CPAMC。",
+        "search_success_accounts": "搜索成功账号",
+        "search_success_accounts_placeholder": "搜索邮箱、任务名或平台",
+        "table_task": "任务",
+        "table_account": "账号",
+        "table_status": "状态",
+        "table_action": "操作",
+        "pagination_prev": "上一页",
+        "pagination_next": "下一页",
+        "pagination_summary": "第 {page} / {pages} 页，共 {total} 条",
+        "success_accounts_empty_list": "当前筛选下没有成功账号。",
+        "retry_cpamc_import": "重试导入 CPAMC",
+        "retry_cpamc_import_done": "已重试导入 {email} 到 CPAMC。",
         "section_schedules": "定时任务",
         "schedules_create_title": "新增定时任务",
         "schedules_create_desc": "每天在固定时间自动创建一个独立任务。",
@@ -419,6 +436,7 @@ UI_TRANSLATIONS = {
         "nav_proxies": "Proxies",
         "nav_create_task": "New Task",
         "nav_task_detail": "Task Detail",
+        "nav_success_accounts": "Success Accounts",
         "nav_schedules": "Schedules",
         "nav_api_keys": "API",
         "nav_docs": "API Docs",
@@ -427,6 +445,7 @@ UI_TRANSLATIONS = {
         "open_sidebar": "Open sidebar",
         "close_sidebar": "Close sidebar",
         "section_overview": "Overview and Defaults",
+        "section_success_accounts": "Success Accounts",
         "panel_defaults_title": "Default settings",
         "panel_defaults_desc": "API-created tasks will use these default credentials and proxy settings first.",
         "default_gptmail": "Default GPTMail",
@@ -486,6 +505,20 @@ UI_TRANSLATIONS = {
         "save_task": "Create and queue task",
         "section_task_detail": "Task Detail",
         "task_detail_note": "Closing the page does not stop a task. Console output is saved in the task directory and will be shown again when you reopen it.",
+        "loading": "Loading...",
+        "success_accounts_page_desc": "Browse extracted successful accounts across all tasks with search, pagination, and CPAMC retry actions.",
+        "search_success_accounts": "Search success accounts",
+        "search_success_accounts_placeholder": "Search by email, task name, or platform",
+        "table_task": "Task",
+        "table_account": "Account",
+        "table_status": "Status",
+        "table_action": "Action",
+        "pagination_prev": "Previous",
+        "pagination_next": "Next",
+        "pagination_summary": "Page {page} / {pages}, total {total}",
+        "success_accounts_empty_list": "No successful accounts match the current filter.",
+        "retry_cpamc_import": "Retry CPAMC import",
+        "retry_cpamc_import_done": "Retried CPAMC import for {email}.",
         "task_list_title": "Task list",
         "task_list_desc": "The left list only shows tasks that match the selected status filter.",
         "task_filter_status": "Status filter",
@@ -1099,20 +1132,8 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
         cpamc_settings = get_cpamc_settings()
         if cpamc_is_ready(cpamc_settings):
             try:
-                response = cpamc_request(
-                    "POST",
-                    base_url=str(cpamc_settings["base_url"]),
-                    management_key=str(cpamc_settings["management_key"]),
-                    path=f"auth-files?name={quote(token_json_path.name)}",
-                    data=token_json_path.read_bytes(),
-                    headers={"Content-Type": "application/json"},
-                )
-                if response.ok:
-                    cpamc_result = {"imported": True, "name": token_json_path.name}
-                    append_task_console(task, f"Imported regenerated OAuth token to CPAMC for {email}.")
-                else:
-                    cpamc_result = {"imported": False, "error": parse_cpamc_error(response), "name": token_json_path.name}
-                    append_task_console(task, f"Failed to import regenerated OAuth token to CPAMC for {email}: {cpamc_result['error']}")
+                cpamc_result = import_success_account_token_to_cpamc(task, email)
+                append_task_console(task, f"Imported regenerated OAuth token to CPAMC for {email}.")
             except Exception as exc:
                 cpamc_result = {"imported": False, "error": str(exc), "name": token_json_path.name}
                 append_task_console(task, f"Failed to import regenerated OAuth token to CPAMC for {email}: {exc}")
@@ -1141,7 +1162,7 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
         raise HTTPException(status_code=502, detail=f"OAuth token regeneration failed: {exc}") from exc
 
 
-def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, str]]:
+def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, Any]]:
     statuses = load_success_account_statuses(task)
     items: list[dict[str, Any]] = []
     for email, password in load_success_accounts(task):
@@ -1157,6 +1178,44 @@ def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, 
             }
         )
     return items
+
+
+def query_success_accounts(*, page: int, page_size: int, search: str) -> dict[str, Any]:
+    tasks = fetch_all("SELECT * FROM tasks ORDER BY id DESC")
+    keyword = search.strip().lower()
+    records: list[dict[str, Any]] = []
+    for row in tasks:
+        task_dict = row_to_dict(row)
+        for account in success_account_items(row):
+            haystack = " ".join([
+                str(account.get("email") or ""),
+                str(task_dict.get("name") or ""),
+                str(task_dict.get("platform") or ""),
+                str(task_dict.get("id") or ""),
+            ]).lower()
+            if keyword and keyword not in haystack:
+                continue
+            records.append(
+                {
+                    "task_id": int(task_dict["id"]),
+                    "task_name": str(task_dict.get("name") or "").strip() or f"#{task_dict['id']}",
+                    "platform": str(task_dict.get("platform") or ""),
+                    **account,
+                }
+            )
+    total = len(records)
+    page_size = max(1, min(page_size, 100))
+    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "items": records[start:end],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+    }
 
 
 def import_task_files_to_cpamc(
@@ -1509,6 +1568,26 @@ def save_success_account_statuses(task: sqlite3.Row | dict[str, Any], statuses: 
     path = task_paths(task)["success_accounts_status_file"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(statuses, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def import_success_account_token_to_cpamc(task: sqlite3.Row | dict[str, Any], email: str) -> dict[str, Any]:
+    cpamc_settings = get_cpamc_settings()
+    if not cpamc_is_ready(cpamc_settings):
+        raise RuntimeError("CPAMC is not enabled or linked")
+    token_json_path = Path(task["task_dir"]) / "output" / "tokens" / f"{email}.json"
+    if not token_json_path.exists():
+        raise RuntimeError("Token JSON file not found for this account")
+    response = cpamc_request(
+        "POST",
+        base_url=str(cpamc_settings["base_url"]),
+        management_key=str(cpamc_settings["management_key"]),
+        path=f"auth-files?name={quote(token_json_path.name)}",
+        data=token_json_path.read_bytes(),
+        headers={"Content-Type": "application/json"},
+    )
+    if not response.ok:
+        raise RuntimeError(parse_cpamc_error(response))
+    return {"imported": True, "name": token_json_path.name, "token_json": str(token_json_path)}
 
 
 def backfill_all_success_accounts() -> dict[str, int]:
@@ -2715,11 +2794,50 @@ async def regenerate_task_success_account_oauth(task_id: int, payload: SuccessAc
     return JSONResponse(result)
 
 
+@app.post("/api/tasks/{task_id}/success-accounts/{email}/cpamc-retry")
+async def retry_task_success_account_cpamc(task_id: int, email: str, request: Request) -> JSONResponse:
+    require_authenticated(request)
+    row = get_task(task_id)
+    normalized_email = email.strip()
+    accounts = {item["email"]: item for item in success_account_items(row)}
+    if normalized_email not in accounts:
+        raise HTTPException(status_code=404, detail="The specified success account was not found in this task")
+    append_task_console(row, f"Retrying CPAMC import for {normalized_email}.")
+    statuses = load_success_account_statuses(row)
+    try:
+        result = import_success_account_token_to_cpamc(row, normalized_email)
+        statuses[normalized_email] = {
+            "cpamc_imported": True,
+            "cpamc_error": "",
+            "token_json": str(result.get("token_json") or ""),
+            "updated_at": now_iso(),
+        }
+        save_success_account_statuses(row, statuses)
+        append_task_console(row, f"CPAMC import retry succeeded for {normalized_email}.")
+        return JSONResponse({"ok": True, "email": normalized_email, "cpamc": result})
+    except Exception as exc:
+        statuses[normalized_email] = {
+            "cpamc_imported": False,
+            "cpamc_error": str(exc),
+            "token_json": str(accounts[normalized_email].get("token_json") or ""),
+            "updated_at": now_iso(),
+        }
+        save_success_account_statuses(row, statuses)
+        append_task_console(row, f"CPAMC import retry failed for {normalized_email}: {exc}")
+        raise HTTPException(status_code=502, detail=f"CPAMC import retry failed: {exc}") from exc
+
+
 @app.post("/api/tasks/backfill-success-accounts")
 async def backfill_success_accounts(request: Request) -> JSONResponse:
     require_authenticated(request)
     result = backfill_all_success_accounts()
     return JSONResponse({"ok": True, **result})
+
+
+@app.get("/api/success-accounts")
+async def success_accounts_listing(request: Request, page: int = 1, page_size: int = 20, search: str = "") -> JSONResponse:
+    require_authenticated(request)
+    return JSONResponse(query_success_accounts(page=page, page_size=page_size, search=search))
 
 
 @app.post("/api/tasks/{task_id}/stop")

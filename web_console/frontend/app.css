@@ -852,10 +852,23 @@ pre {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.success-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .success-account-copy {
   display: grid;
   gap: 4px;
   min-width: 0;
+}
+
+.success-account-badge {
+  width: fit-content;
+  max-width: 100%;
+  font-style: normal;
 }
 
 .success-account-copy strong,
@@ -870,6 +883,57 @@ pre {
   font-family: Consolas, "SFMono-Regular", Menlo, monospace;
   font-size: 12px;
   opacity: 0.88;
+}
+
+.success-account-copy--table strong,
+.success-account-copy--table span {
+  color: inherit;
+}
+
+.success-accounts-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.success-search-field {
+  min-width: min(420px, 100%);
+}
+
+.success-account-table-wrap {
+  overflow: auto;
+}
+
+.success-accounts-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.linkish-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.linkish-button:hover {
+  text-decoration: underline;
+}
+
+.table-subline {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .flash-key {

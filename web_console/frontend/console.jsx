@@ -368,6 +368,8 @@ export function ConsoleApp() {
   const [taskFilterStatus, setTaskFilterStatus] = useState('all');
   const [selectedTaskId, setSelectedTaskId] = useState(null);
   const [selectedScheduleId, setSelectedScheduleId] = useState(null);
+  const [successAccountsPage, setSuccessAccountsPage] = useState({ items: [], page: 1, page_size: 20, total: 0, total_pages: 1 });
+  const [successAccountsSearch, setSuccessAccountsSearch] = useState('');
   const [flashKey, setFlashKey] = useState('');
   const [modalState, setModalState] = useState(null);
   const [statePayload, setStatePayload] = useState({
@@ -495,6 +497,10 @@ export function ConsoleApp() {
     }, 4000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    loadSuccessAccounts(1, successAccountsSearch).catch(() => {});
+  }, [successAccountsSearch]);
 
   async function refreshState({ initial = false } = {}) {
     const payload = normalizeStatePayload(await api('/api/state'));
@@ -865,6 +871,12 @@ export function ConsoleApp() {
     });
   }
 
+  async function loadSuccessAccounts(page = 1, search = successAccountsSearch) {
+    const params = new URLSearchParams({ page: String(page), page_size: '20', search });
+    const payload = await api(`/api/success-accounts?${params.toString()}`);
+    setSuccessAccountsPage(payload);
+  }
+
   async function handlePreviewSuccessAccounts(task) {
     await withBusy(`task-success-preview-${task.id}`, async () => {
       const result = await api(`/api/tasks/${task.id}/success-accounts`);
@@ -912,10 +924,21 @@ export function ConsoleApp() {
     await withBusy('task-backfill-success-accounts', async () => {
       const result = await api('/api/tasks/backfill-success-accounts', { method: 'POST' });
       await refreshState();
+      await loadSuccessAccounts(successAccountsPage.page || 1);
       setFlashNotice({
         type: 'success',
         message: tr('extract_history_success_accounts_done', { updated: result.updated, non_empty: result.non_empty }),
       });
+    });
+  }
+
+  async function handleRetrySuccessAccountCpamc(item) {
+    await withBusy(`success-account-cpamc-${item.task_id}-${item.email}`, async () => {
+      const encodedEmail = encodeURIComponent(item.email);
+      await api(`/api/tasks/${item.task_id}/success-accounts/${encodedEmail}/cpamc-retry`, { method: 'POST' });
+      await refreshState();
+      await loadSuccessAccounts(successAccountsPage.page || 1);
+      setFlashNotice({ type: 'success', message: tr('retry_cpamc_import_done', { email: item.email }) });
     });
   }
 
@@ -1456,6 +1479,74 @@ export function ConsoleApp() {
     );
   }
 
+  function renderSuccessAccounts() {
+    return (
+      <section className="section-card active">
+        <article className="panel">
+          <div className="panel-head">
+            <div>
+              <h3>{tr('section_success_accounts')}</h3>
+              <span>{tr('success_accounts_page_desc')}</span>
+            </div>
+          </div>
+          <div className="success-accounts-toolbar">
+            <label className="field-card success-search-field">
+              <span>{tr('search_success_accounts')}</span>
+              <input value={successAccountsSearch} placeholder={tr('search_success_accounts_placeholder')} onChange={(event) => setSuccessAccountsSearch(event.target.value)} />
+            </label>
+            <BusyButton type="button" busy={isBusy('task-backfill-success-accounts')} onClick={handleBackfillSuccessAccounts}>{tr('extract_history_success_accounts')}</BusyButton>
+          </div>
+          <div className="success-account-table-wrap">
+            {successAccountsPage.items.length ? (
+              <table className="doc-table success-account-table">
+                <thead>
+                  <tr>
+                    <th>{tr('table_task')}</th>
+                    <th>{tr('table_account')}</th>
+                    <th>{tr('table_status')}</th>
+                    <th>{tr('table_action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {successAccountsPage.items.map((item) => (
+                    <tr key={`${item.task_id}-${item.email}`}>
+                      <td>
+                        <button type="button" className="linkish-button" onClick={() => { setSelectedTaskId(item.task_id); setActiveSection('task-detail'); }}>
+                          {item.task_name} (#{item.task_id})
+                        </button>
+                        <div className="table-subline">{item.platform}</div>
+                      </td>
+                      <td>
+                        <div className="success-account-copy success-account-copy--table">
+                          <strong>{item.email}</strong>
+                          <span>{item.password}</span>
+                        </div>
+                      </td>
+                      <td>
+                        {item.cpamc_imported ? <em className="status-pill status-pill--linked success-account-badge">{tr('cpamc_badge_imported')}</em> : null}
+                        {!item.cpamc_imported && item.cpamc_error ? <em className="status-pill status-pill--failed success-account-badge" title={item.cpamc_error}>{tr('cpamc_badge_failed')}</em> : null}
+                      </td>
+                      <td>
+                        <BusyButton type="button" className="ghost-btn" busy={isBusy(`success-account-cpamc-${item.task_id}-${item.email}`)} disabled={!item.token_json} onClick={() => handleRetrySuccessAccountCpamc(item)}>{tr('retry_cpamc_import')}</BusyButton>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p className="empty">{tr('success_accounts_empty_list')}</p>}
+          </div>
+          <div className="success-accounts-pagination">
+            <span>{tr('pagination_summary', { page: successAccountsPage.page || 1, pages: successAccountsPage.total_pages || 1, total: successAccountsPage.total || 0 })}</span>
+            <div className="entity-actions">
+              <button type="button" disabled={(successAccountsPage.page || 1) <= 1} onClick={() => loadSuccessAccounts((successAccountsPage.page || 1) - 1)}>{tr('pagination_prev')}</button>
+              <button type="button" disabled={(successAccountsPage.page || 1) >= (successAccountsPage.total_pages || 1)} onClick={() => loadSuccessAccounts((successAccountsPage.page || 1) + 1)}>{tr('pagination_next')}</button>
+            </div>
+          </div>
+        </article>
+      </section>
+    );
+  }
+
   function renderTaskDetail() {
     const scheduleSummary = visibleTask ? getScheduleTaskSummary(visibleTask) : null;
     const scheduleDetail = visibleSchedule ? getScheduleDetail(visibleSchedule) : null;
@@ -1586,9 +1677,14 @@ export function ConsoleApp() {
                             {account.cpamc_imported ? <em className="status-pill status-pill--linked success-account-badge">{tr('cpamc_badge_imported')}</em> : null}
                             {!account.cpamc_imported && account.cpamc_error ? <em className="status-pill status-pill--failed success-account-badge" title={account.cpamc_error}>{tr('cpamc_badge_failed')}</em> : null}
                           </div>
-                          {['chatgpt-register-v2', 'chatgpt-register-v3'].includes(visibleTask.platform) ? (
-                            <BusyButton type="button" className="ghost-btn" busy={isBusy(`task-regenerate-oauth-${visibleTask.id}`)} onClick={() => handleRegenerateOAuthToken(visibleTask, account)}>{tr('regenerate_oauth_token')}</BusyButton>
-                          ) : null}
+                          <div className="success-account-actions">
+                            {!account.cpamc_imported && account.cpamc_error ? (
+                              <BusyButton type="button" className="ghost-btn" busy={isBusy(`success-account-cpamc-${visibleTask.id}-${account.email}`)} disabled={!account.token_json} onClick={() => handleRetrySuccessAccountCpamc({ ...account, task_id: visibleTask.id })}>{tr('retry_cpamc_import')}</BusyButton>
+                            ) : null}
+                            {['chatgpt-register-v2', 'chatgpt-register-v3'].includes(visibleTask.platform) ? (
+                              <BusyButton type="button" className="ghost-btn" busy={isBusy(`task-regenerate-oauth-${visibleTask.id}`)} onClick={() => handleRegenerateOAuthToken(visibleTask, account)}>{tr('regenerate_oauth_token')}</BusyButton>
+                            ) : null}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2180,6 +2276,8 @@ Authorization: Bearer YOUR_API_KEY`,
         return renderCreateTask();
       case 'task-detail':
         return renderTaskDetail();
+      case 'success-accounts':
+        return renderSuccessAccounts();
       case 'schedules':
         return renderSchedules();
       case 'cpamc':
@@ -2280,7 +2378,7 @@ Authorization: Bearer YOUR_API_KEY`,
           </div>
           {flashNotice && loaded ? <div className={`toast-banner toast-banner--${flashNotice.type}`.trim()}>{flashNotice.message}</div> : null}
           {loadError && loaded ? <div className="toast-error">{loadError}</div> : null}
-          {!loaded ? <section className="section-card active"><div className="panel"><p className="empty">Loading...</p></div></section> : renderContent()}
+          {!loaded ? <section className="section-card active"><div className="panel"><p className="empty">{tr('loading')}</p></div></section> : renderContent()}
         </main>
       </div>
       <Modal
