@@ -65,6 +65,7 @@ function normalizeStatePayload(payload) {
     cpamc: payload.cpamc || {},
     dashboard: payload.dashboard || {},
     platforms: payload.platforms || {},
+    serverNow: payload.serverNow || payload.server_now || null,
     browserAutomationTemplates: payload.browser_automation_templates || BROWSER_AUTOMATION_TEMPLATES || {},
   };
 }
@@ -386,18 +387,18 @@ function getScheduleSummaryLabel(schedule) {
   return schedule?.schedule_label || (schedule?.time_of_day ? tr('schedule_visual_summary', { value: schedule.time_of_day }) : '');
 }
 
-function TaskDurationText({ task, tr, className = '' }) {
-  const timing = useTaskTiming(task, tr);
+function TaskDurationText({ task, tr, className = '', serverNow = null }) {
+  const timing = useTaskTiming(task, tr, serverNow);
   return <span className={className}>{timing.durationLabel}</span>;
 }
 
-function TaskDurationLabel({ task, tr, className = '' }) {
-  const timing = useTaskTiming(task, tr);
+function TaskDurationLabel({ task, tr, className = '', serverNow = null }) {
+  const timing = useTaskTiming(task, tr, serverNow);
   return <span className={className}>{tr('task_duration_label', { value: timing.durationLabel })}</span>;
 }
 
-function TaskDurationValue({ task, tr, className = '' }) {
-  const timing = useTaskTiming(task, tr);
+function TaskDurationValue({ task, tr, className = '', serverNow = null }) {
+  const timing = useTaskTiming(task, tr, serverNow);
   return <span className={className}>{timing.durationLabel}</span>;
 }
 
@@ -431,6 +432,7 @@ export function ConsoleApp() {
     cpamc: {},
     dashboard: {},
     platforms: APP_CONFIG.platforms || {},
+    serverNow: APP_CONFIG.serverNow || null,
   });
   const [defaultsDraft, setDefaultsDraft] = useState({
     default_gptmail_credential_id: '',
@@ -487,7 +489,7 @@ export function ConsoleApp() {
     : normalTasks.filter((task) => task.status === taskFilterStatus);
   const visibleTask = filteredTasks.find((item) => item.id === selectedTaskId) || filteredTasks[0] || null;
   const visibleSchedule = statePayload.schedules.find((item) => item.id === selectedScheduleId) || statePayload.schedules[0] || null;
-  const visibleTaskTiming = useTaskTiming(visibleTask, tr);
+  const visibleTaskTiming = useTaskTiming(visibleTask, tr, statePayload.serverNow);
   const runningTasks = normalTasks.filter((task) => ['queued', 'running', 'stopping'].includes(task.status));
   const finishedTasks = normalTasks.filter((task) => ['completed', 'partial'].includes(task.status));
   const failedTasks = normalTasks.filter((task) => ['failed', 'stopped', 'interrupted'].includes(task.status));
@@ -1982,7 +1984,7 @@ export function ConsoleApp() {
                     </div>
                     <div className="task-side-item__meta">
                       <span className="task-side-item__count">{task.results_count}/{task.quantity}</span>
-                      <TaskDurationText task={task} tr={tr} className="task-side-item__count" />
+                      <TaskDurationText task={task} tr={tr} serverNow={statePayload.serverNow} className="task-side-item__count" />
                       <span className={`status-pill status-pill--${task.status}`}>{statusLabel(task.status)}</span>
                     </div>
                   </button>
@@ -1996,7 +1998,7 @@ export function ConsoleApp() {
                       </div>
                     <div className="task-side-item__meta">
                       <span className="task-side-item__count">{detail?.completedRuns || 0} {tr('schedule_runs_short')}</span>
-                      {detail?.latestTask ? <TaskDurationText task={detail.latestTask} tr={tr} className="task-side-item__count" /> : <span className="task-side-item__count">{tr('task_duration_unknown')}</span>}
+                      {detail?.latestTask ? <TaskDurationText task={detail.latestTask} tr={tr} serverNow={statePayload.serverNow} className="task-side-item__count" /> : <span className="task-side-item__count">{tr('task_duration_unknown')}</span>}
                       <span className={`status-pill ${schedule.enabled ? 'status-pill--linked' : 'status-pill--disabled'}`.trim()}>
                         {schedule.enabled ? tr('enable') : tr('disable')}
                       </span>
@@ -2034,7 +2036,7 @@ export function ConsoleApp() {
                         <span>{tr('schedule_target_quantity', { value: scheduleSummary.todayTask?.quantity ?? scheduleSummary.schedule.quantity })}</span>
                         <span>{tr('schedule_completed_quantity', { value: scheduleSummary.todayTask?.results_count ?? 0 })}</span>
                         <span>{tr('schedule_today_status', { value: scheduleSummary.todayTask ? statusLabel(scheduleSummary.todayTask.status) : tr('schedule_today_none') })}</span>
-                        {scheduleSummary.todayTask ? <TaskDurationLabel task={scheduleSummary.todayTask} tr={tr} /> : <span>{tr('task_duration_label', { value: tr('task_duration_unknown') })}</span>}
+                        {scheduleSummary.todayTask ? <TaskDurationLabel task={scheduleSummary.todayTask} tr={tr} serverNow={statePayload.serverNow} /> : <span>{tr('task_duration_label', { value: tr('task_duration_unknown') })}</span>}
                         <span>{tr('schedule_completed_runs', { value: scheduleSummary.completedRuns })}</span>
                       </div>
                     </aside>
@@ -2044,6 +2046,10 @@ export function ConsoleApp() {
                   <article className="task-summary-card">
                     <span>{tr('task_started_time')}</span>
                     <strong>{visibleTaskTiming.startedAtLabel}</strong>
+                  </article>
+                  <article className="task-summary-card">
+                    <span>{tr('task_current_run_started_time')}</span>
+                    <strong>{visibleTaskTiming.currentRunStartedAtLabel}</strong>
                   </article>
                   <article className="task-summary-card">
                     <span>{tr('task_finished_time')}</span>
@@ -2125,7 +2131,7 @@ export function ConsoleApp() {
                       {visibleSchedule.platform} | {getScheduleSummaryLabel(visibleSchedule)} | {tr('schedule_target_quantity', { value: visibleSchedule.quantity })} | {tr('schedule_completed_quantity', { value: scheduleDetail?.todayTask?.results_count ?? 0 })} | {tr('schedule_today_status', { value: scheduleDetail?.todayTask ? statusLabel(scheduleDetail.todayTask.status) : tr('schedule_today_none') })}
                     </p>
                     <p className="notes">
-                      {tr('schedule_completed_runs', { value: scheduleDetail?.completedRuns ?? 0 })} | {scheduleDetail?.todayTask ? <TaskDurationValue task={scheduleDetail.todayTask} tr={tr} /> : tr('task_duration_unknown')} | {visibleSchedule.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')} | {visibleSchedule.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}
+                      {tr('schedule_completed_runs', { value: scheduleDetail?.completedRuns ?? 0 })} | {scheduleDetail?.todayTask ? <TaskDurationValue task={scheduleDetail.todayTask} tr={tr} serverNow={statePayload.serverNow} /> : tr('task_duration_unknown')} | {visibleSchedule.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')} | {visibleSchedule.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}
                     </p>
                   </div>
                 </div>
@@ -2299,7 +2305,7 @@ export function ConsoleApp() {
                         quantity: item.quantity,
                         enabled: item.enabled ? tr('enable') : tr('disable'),
                       })}</p>
-                      <p className="notes">{detail?.latestTask ? <TaskDurationLabel task={detail.latestTask} tr={tr} /> : tr('task_duration_label', { value: tr('task_duration_unknown') })}</p>
+                      <p className="notes">{detail?.latestTask ? <TaskDurationLabel task={detail.latestTask} tr={tr} serverNow={statePayload.serverNow} /> : tr('task_duration_label', { value: tr('task_duration_unknown') })}</p>
                       <p className="notes">{item.use_proxy ? tr('schedule_proxy_on') : tr('schedule_proxy_off')}</p>
                       <p className="notes">{item.auto_import_cpamc ? tr('schedule_cpamc_auto_import_on') : tr('schedule_cpamc_auto_import_off')}</p>
                     </div>

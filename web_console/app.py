@@ -426,7 +426,8 @@ UI_TRANSLATIONS = {
         "task_duration_pending": "等待中 {value}",
         "task_duration_unknown": "耗时未知",
         "task_live_timer_hint": "本次运行",
-        "task_started_time": "开始时间",
+        "task_started_time": "总开始时间",
+        "task_current_run_started_time": "本次开始时间",
         "task_finished_time": "结束时间",
         "task_run_duration": "耗时",
         "task_time_unknown": "--",
@@ -800,7 +801,8 @@ UI_TRANSLATIONS = {
         "task_duration_pending": "Pending for {value}",
         "task_duration_unknown": "Duration unavailable",
         "task_live_timer_hint": "Current run",
-        "task_started_time": "Started",
+        "task_started_time": "Total start",
+        "task_current_run_started_time": "Current run start",
         "task_finished_time": "Finished",
         "task_run_duration": "Duration",
         "task_time_unknown": "--",
@@ -3216,6 +3218,7 @@ def state_payload() -> dict[str, Any]:
         "api_keys": get_api_keys(),
         "dashboard": dashboard_summary(),
         "max_concurrent_tasks": MAX_CONCURRENT_TASKS,
+        "server_now": now_iso(),
     }
 
 

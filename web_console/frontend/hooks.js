@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getPlatformKeys } from './config.js';
+import { APP_CONFIG, getPlatformKeys } from './config.js';
 
 export function createInitialScheduleDraft(platforms) {
   return {
@@ -198,27 +198,45 @@ function formatDurationMs(ms) {
   return parts.slice(0, 3).join(' ');
 }
 
-export function useTaskTiming(task, tr) {
+export function useTaskTiming(task, tr, serverNow = APP_CONFIG.serverNow || null) {
+  const serverNowTs = parseTimestamp(serverNow);
+  const [clientNow, setClientNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!task || !['running', 'stopping', 'queued'].includes(task.status)) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      setClientNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [task?.id, task?.status]);
+
   return useMemo(() => {
     if (!task) {
       return {
         durationLabel: tr('task_duration_unknown'),
         startedAtLabel: tr('task_time_unknown'),
+        currentRunStartedAtLabel: tr('task_time_unknown'),
         finishedAtLabel: tr('task_time_unknown'),
         timerTone: 'idle',
       };
     }
-    const actualStartValue = task.first_started_at || task.started_at || '';
-    const pendingStartValue = (!actualStartValue && task.status === 'queued') ? task.created_at : '';
-    const durationStartValue = actualStartValue || pendingStartValue;
+
+    const totalStartValue = task.first_started_at || task.started_at || '';
+    const currentRunStartValue = task.started_at || task.first_started_at || '';
+    const pendingStartValue = (!totalStartValue && task.status === 'queued') ? task.created_at : '';
+    const durationStartValue = totalStartValue || pendingStartValue;
     const start = parseTimestamp(durationStartValue);
-    const end = parseTimestamp(task.finished_at) || Date.now();
+    const serverOffsetMs = serverNowTs ? (serverNowTs - clientNow) : 0;
+    const liveNow = clientNow + serverOffsetMs;
+    const end = parseTimestamp(task.finished_at) || liveNow;
     const duration = start ? formatDurationMs(end - start) : tr('task_duration_unknown');
     let durationLabel = tr('task_duration_unknown');
     if (start) {
-      if (task.status === 'queued' && !actualStartValue) {
+      if (task.status === 'queued' && !totalStartValue) {
         durationLabel = tr('task_duration_pending', { value: duration });
-      } else if (['running', 'stopping'].includes(task.status) || (!task.finished_at && actualStartValue)) {
+      } else if (['running', 'stopping'].includes(task.status) || (!task.finished_at && totalStartValue)) {
         durationLabel = tr('task_duration_running', { value: duration });
       } else {
         durationLabel = tr('task_duration_value', { value: duration });
@@ -226,9 +244,10 @@ export function useTaskTiming(task, tr) {
     }
     return {
       durationLabel,
-      startedAtLabel: actualStartValue || tr('task_time_unknown'),
+      startedAtLabel: totalStartValue || tr('task_time_unknown'),
+      currentRunStartedAtLabel: currentRunStartValue || tr('task_time_unknown'),
       finishedAtLabel: task.finished_at || tr('task_time_unknown'),
       timerTone: ['running', 'stopping'].includes(task.status) ? 'live' : task.status === 'queued' ? 'queued' : 'done',
     };
-  }, [task, tr]);
+  }, [clientNow, serverNowTs, task, tr]);
 }
