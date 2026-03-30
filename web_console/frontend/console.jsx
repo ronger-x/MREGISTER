@@ -23,6 +23,7 @@ const SIDEBAR_LOGO_SRC = '/static/MAISHANhlogomini.png';
 const DOCS_LOG_IMAGE_SRC = '/static/docs-log-preview.jpg';
 const PROJECT_GITHUB_URL = 'https://github.com/ronger-x/MREGISTER';
 const STATE_REFRESH_INTERVAL_MS = 300000;
+const TASK_DETAIL_REFRESH_INTERVAL_MS = 3000;
 const MAIL_PROVIDER_OPTIONS = [
   ['gptmail', 'GPTMail'],
   ['duckmail', 'DuckMail'],
@@ -434,6 +435,7 @@ export function ConsoleApp() {
   const [successAccountsUpdatedAt, setSuccessAccountsUpdatedAt] = useState('');
   const [flashKey, setFlashKey] = useState('');
   const [modalState, setModalState] = useState(null);
+  const [taskDetail, setTaskDetail] = useState(null);
   const [statePayload, setStatePayload] = useState({
     credentials: [],
     proxies: [],
@@ -501,7 +503,8 @@ export function ConsoleApp() {
   const filteredTasks = taskFilterStatus === 'all'
     ? normalTasks
     : normalTasks.filter((task) => task.status === taskFilterStatus);
-  const visibleTask = filteredTasks.find((item) => item.id === selectedTaskId) || filteredTasks[0] || null;
+  const visibleTaskSummary = filteredTasks.find((item) => item.id === selectedTaskId) || filteredTasks[0] || null;
+  const visibleTask = taskDetail?.id === visibleTaskSummary?.id ? taskDetail : visibleTaskSummary;
   const visibleSchedule = statePayload.schedules.find((item) => item.id === selectedScheduleId) || statePayload.schedules[0] || null;
   const visibleTaskTiming = useTaskTiming(visibleTask, tr, statePayload.serverNow);
   const runningTasks = normalTasks.filter((task) => ['queued', 'running', 'stopping'].includes(task.status));
@@ -512,6 +515,7 @@ export function ConsoleApp() {
   const browserTemplates = statePayload.browserAutomationTemplates || BROWSER_AUTOMATION_TEMPLATES || {};
   const selectedBrowserTemplate = browserTemplates[taskDraft.platform_options?.workflow_template] || null;
   const currentSectionLabel = tr(SECTION_TITLE_KEYS[activeSection] || 'section_overview');
+  const isTaskDetailActive = taskListMode === 'task' && (activeSection === 'task-detail' || (activeSection === 'task-center' && taskCenterTab === 'detail'));
   const topbarBreadcrumbs = [
     tr('topbar_workspace'),
     ...(activeSection === 'dashboard' ? [] : [currentSectionLabel]),
@@ -542,6 +546,48 @@ export function ConsoleApp() {
       setSelectedTaskId(visibleTask.id);
     }
   }, [visibleTask?.id]);
+
+  useEffect(() => {
+    if (!selectedTaskId) {
+      setTaskDetail(null);
+      return undefined;
+    }
+    if (!isTaskDetailActive) {
+      return undefined;
+    }
+
+    let disposed = false;
+
+    const loadTaskDetail = async ({ suppressError = false } = {}) => {
+      try {
+        const result = await api(`/api/tasks/${selectedTaskId}`);
+        if (!disposed) {
+          setTaskDetail(result.task || null);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setTaskDetail(null);
+          if (!suppressError) {
+            setLoadError(error.message);
+          }
+        }
+      }
+    };
+
+    loadTaskDetail({ suppressError: true }).catch(() => {});
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      loadTaskDetail({ suppressError: true }).catch(() => {});
+    }, TASK_DETAIL_REFRESH_INTERVAL_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedTaskId, isTaskDetailActive]);
 
   useEffect(() => {
     if (consoleRef.current) {
@@ -648,6 +694,12 @@ export function ConsoleApp() {
         return current;
       }
       return payload.tasks[0]?.id || null;
+    });
+    setTaskDetail((current) => {
+      if (current && payload.tasks.some((item) => item.id === current.id)) {
+        return current;
+      }
+      return null;
     });
     setSelectedScheduleId((current) => {
       if (payload.schedules.some((item) => item.id === current)) {
