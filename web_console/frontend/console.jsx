@@ -2167,6 +2167,18 @@ export function ConsoleApp() {
                       {tr('cpamc_import_button')}
                     </BusyButton>
                   ) : null}
+                  {statePayload.cpamc?.enabled && statePayload.cpamc?.linked ? (
+                    <BusyButton
+                      type="button"
+                      className="ghost-btn"
+                      busy={isBusy(`cpamc-force-import-${scheduleDetail?.importTask?.id}`)}
+                      disabled={!scheduleDetail?.importTask}
+                      title={!scheduleDetail?.importTask ? tr('cpamc_import_disabled') : ''}
+                      onClick={() => handleImportTaskToCpamc(scheduleDetail.importTask, { force: true })}
+                    >
+                      {tr('cpamc_force_import_button')}
+                    </BusyButton>
+                  ) : null}
                 </div>
                 <div className="console-box large-console">
                   <div className="console-title">{tr('console_title')}</div>
