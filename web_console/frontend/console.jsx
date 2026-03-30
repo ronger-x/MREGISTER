@@ -22,7 +22,7 @@ import { BusyButton, Modal } from './ui.jsx';
 const SIDEBAR_LOGO_SRC = '/static/MAISHANhlogomini.png';
 const DOCS_LOG_IMAGE_SRC = '/static/docs-log-preview.jpg';
 const PROJECT_GITHUB_URL = 'https://github.com/ronger-x/MREGISTER';
-const STATE_REFRESH_INTERVAL_MS = 10000;
+const STATE_REFRESH_INTERVAL_MS = 300000;
 const MAIL_PROVIDER_OPTIONS = [
   ['gptmail', 'GPTMail'],
   ['duckmail', 'DuckMail'],
