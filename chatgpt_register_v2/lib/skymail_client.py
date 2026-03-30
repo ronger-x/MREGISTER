@@ -627,6 +627,10 @@ def init_skymail_client(config: dict) -> BaseMailClient:
         resolved_prefix = _first_text(shared_prefix, config.get("gptmail_prefix")) or None
         resolved_domain = _first_text(shared_domain, config.get("gptmail_domain")) or None
 
+    if provider == "mailtm":
+        print("❌ 错误: mail.tm 默认域名已不再支持注册，请改用其他邮件服务")
+        sys.exit(1)
+
     extended = create_extended_mail_client(
         provider,
         api_key=resolved_api_key,

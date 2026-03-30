@@ -1033,17 +1033,6 @@ def create_extended_mail_client(
     extra_config: dict[str, Any] | None = None,
 ):
     normalized = str(provider or "").strip().lower().replace("-", "_")
-    if normalized == "mailtm":
-        return MailTmAdapter(
-            base_url=base_url or "https://api.mail.tm",
-            api_key=api_key,
-            proxy=proxy,
-            prefix=prefix,
-            domain=domain,
-            timeout=timeout,
-            provider_name=normalized,
-            extra_config=extra_config,
-        )
     if normalized == "duckmail":
         return MailTmAdapter(
             base_url=base_url or "https://api.duckmail.sbs",

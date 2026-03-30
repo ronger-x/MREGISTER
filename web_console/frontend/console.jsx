@@ -25,7 +25,6 @@ const PROJECT_GITHUB_URL = 'https://github.com/ronger-x/MREGISTER';
 const MAIL_PROVIDER_OPTIONS = [
   ['gptmail', 'GPTMail'],
   ['duckmail', 'DuckMail'],
-  ['mailtm', 'mail.tm'],
   ['tempmail_lol', 'TempMail.lol'],
   ['temporam', 'Temporam'],
   ['custom2925', '2925 Mail'],

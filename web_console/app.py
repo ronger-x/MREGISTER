@@ -193,7 +193,7 @@ UI_TRANSLATIONS = {
         "panel_recent_tasks_desc": "点任意任务可直接跳到详情页查看控制台输出。",
         "section_credentials": "凭据管理",
         "credentials_create_title": "新增凭据",
-        "credentials_create_desc": "支持 GPTMail、DuckMail、mail.tm、TempMail.lol、Temporam、2925、MoeMail、Cloudflare Temp Email 与 YesCaptcha。",
+        "credentials_create_desc": "支持 GPTMail、DuckMail、TempMail.lol、Temporam、2925、MoeMail、Cloudflare Temp Email 与 YesCaptcha。",
         "gptmail_optional_hint": "GPTMail 的 Base URL、邮箱前缀、邮箱域名都有默认值，可直接留空不填写。",
         "mail_provider_optional_hint": "大部分邮件服务只需要填写基础字段；像 2925/Temporam 这类高级配置可放到 Extra JSON。",
         "credentials_saved_title": "已保存凭据",
@@ -574,7 +574,7 @@ UI_TRANSLATIONS = {
         "panel_recent_tasks_desc": "Click any task to jump straight into the detail view and console output.",
         "section_credentials": "Credential Management",
         "credentials_create_title": "Add credential",
-        "credentials_create_desc": "Supports GPTMail, DuckMail, mail.tm, TempMail.lol, Temporam, 2925, MoeMail, Cloudflare Temp Email, and YesCaptcha.",
+        "credentials_create_desc": "Supports GPTMail, DuckMail, TempMail.lol, Temporam, 2925, MoeMail, Cloudflare Temp Email, and YesCaptcha.",
         "gptmail_optional_hint": "For GPTMail, Base URL, email prefix, and email domain all have defaults, so you can leave them blank.",
         "mail_provider_optional_hint": "Most mail providers only need the basic fields. Advanced 2925/Temporam settings can go into Extra JSON.",
         "credentials_saved_title": "Saved credentials",
@@ -927,7 +927,6 @@ DEFAULT_SETTING_KEYS = {
 EMAIL_CREDENTIAL_KINDS = {
     "gptmail",
     "duckmail",
-    "mailtm",
     "tempmail_lol",
     "temporam",
     "custom2925",
@@ -2142,7 +2141,7 @@ SUCCESS_ACCOUNT_REGISTERED_STATUS = "已注册"
 SUCCESS_ACCOUNT_OAUTH_SUCCESS_STATUS = "已注册/OAuth成功"
 SUCCESS_ACCOUNT_OAUTH_FAILED_STATUS = "已注册/OAuth失败"
 SUCCESS_ACCOUNT_PIPE_PLATFORMS = {"chatgpt-register-v2", "chatgpt-register-v3"}
-SUCCESS_ACCOUNT_SEEDED_MAILBOX_PROVIDERS = {"mailtm", "duckmail", "tempmail_lol", "cloudflare_temp_email"}
+SUCCESS_ACCOUNT_SEEDED_MAILBOX_PROVIDERS = {"duckmail", "tempmail_lol", "cloudflare_temp_email"}
 
 
 def success_account_timestamp() -> str:
@@ -2394,7 +2393,7 @@ def seed_mail_client_for_success_account(mail_client: Any, record: dict[str, str
     mailbox_credential = str(record.get("mailbox_credential") or "").strip()
     if not email or not provider or not mailbox_credential:
         return
-    if provider in {"mailtm", "duckmail"} and hasattr(mail_client, "_accounts"):
+    if provider == "duckmail" and hasattr(mail_client, "_accounts"):
         existing = dict(getattr(mail_client, "_accounts", {}).get(email) or {})
         existing["password"] = mailbox_credential
         getattr(mail_client, "_accounts")[email] = existing

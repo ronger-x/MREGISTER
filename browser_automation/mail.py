@@ -23,16 +23,21 @@ class EmailClient:
         self.service = None
 
     def is_configured(self) -> bool:
-        provider = str(self.context.mail_provider or "").strip().lower()
+        provider = str(self.context.mail_provider or "").strip().lower().replace("-", "_")
         if not provider:
             return False
-        if provider in {"duckmail", "mailtm", "tempmail_lol", "temporam"}:
+        if provider == "mailtm":
+            return False
+        if provider in {"duckmail", "tempmail_lol", "temporam"}:
             return True
         return bool(self.context.mail_api_key or self.context.mail_extra_json)
 
     def create_service(self):
         if self.service is not None:
             return self.service
+        provider = str(self.context.mail_provider or "").strip().lower().replace("-", "_")
+        if provider == "mailtm":
+            raise RuntimeError("mail.tm is no longer supported")
         if not self.is_configured():
             raise RuntimeError("Mail credential is not configured for this task")
         config = {

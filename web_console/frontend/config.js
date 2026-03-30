@@ -5,7 +5,6 @@ export const SIDEBAR_STORAGE_KEY = 'mregister-react-sidebar-collapsed';
 export const EMAIL_CREDENTIAL_KINDS = new Set([
   'gptmail',
   'duckmail',
-  'mailtm',
   'tempmail_lol',
   'temporam',
   'custom2925',

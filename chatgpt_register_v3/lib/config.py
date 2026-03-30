@@ -144,7 +144,6 @@ def get_email_service_type(provider: str) -> EmailServiceType:
         "skymail": EmailServiceType.SKYMAIL,
         "gptmail": EmailServiceType.GPTMAIL,
         "duckmail": EmailServiceType.DUCKMAIL,
-        "mailtm": EmailServiceType.MAILTM,
         "tempmail_lol": EmailServiceType.TEMPMAIL_LOL,
         "temporam": EmailServiceType.TEMPORAM,
         "custom2925": EmailServiceType.CUSTOM2925,

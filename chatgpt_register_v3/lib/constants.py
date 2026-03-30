@@ -13,7 +13,6 @@ class EmailServiceType(str, Enum):
     SKYMAIL = "skymail"
     GPTMAIL = "gptmail"
     DUCKMAIL = "duckmail"
-    MAILTM = "mailtm"
     TEMPMAIL_LOL = "tempmail_lol"
     TEMPORAM = "temporam"
     CUSTOM2925 = "custom2925"
