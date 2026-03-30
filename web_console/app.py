@@ -39,6 +39,7 @@ SESSION_COOKIE = "register_console_session"
 SESSION_TTL_HOURS = max(1, int(os.getenv("WEB_CONSOLE_SESSION_TTL_HOURS", "24")))
 MAX_CONCURRENT_TASKS = max(1, int(os.getenv("WEB_CONSOLE_MAX_CONCURRENT_TASKS", "2")))
 POLL_INTERVAL_SECONDS = max(1.0, float(os.getenv("WEB_CONSOLE_POLL_INTERVAL", "2.0")))
+STATE_PAYLOAD_CACHE_SECONDS = max(0.0, float(os.getenv("WEB_CONSOLE_STATE_CACHE_SECONDS", "2.0")))
 
 PLATFORMS = {
     "browser-automation-local": {
@@ -943,7 +944,21 @@ CPAMC_SETTING_KEYS = {
 }
 
 db_lock = threading.RLock()
+file_cache_lock = threading.RLock()
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+
+_result_line_cache: dict[str, tuple[tuple[bool, int, int], int]] = {}
+_success_account_records_cache: dict[str, tuple[tuple[bool, int, int], list[dict[str, str]]]] = {}
+_json_dict_cache: dict[str, tuple[tuple[bool, int, int], dict[str, dict[str, Any]]]] = {}
+_state_payload_cache: dict[str, Any] = {"expires_at": 0.0, "value": None}
+
+
+def path_signature(path: Path) -> tuple[bool, int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (False, 0, 0)
+    return (True, int(stat.st_mtime_ns), int(stat.st_size))
 
 
 # Windows may inherit incorrect registry mappings for JavaScript module files.
@@ -1562,10 +1577,16 @@ def resolve_success_account_batch_items(payload: SuccessAccountOAuthBatchRequest
     return payload.items
 
 
-def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, Any]]:
-    statuses = load_success_account_statuses(task)
+def success_account_items(
+    task: sqlite3.Row | dict[str, Any],
+    *,
+    records: list[dict[str, str]] | None = None,
+    statuses: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    statuses = statuses if statuses is not None else load_success_account_statuses(task)
+    records = records if records is not None else load_success_account_records(task)
     items: list[dict[str, Any]] = []
-    for record in load_success_account_records(task):
+    for record in records:
         email = str(record.get("email") or "").strip()
         password = str(record.get("password") or "").strip()
         status = statuses.get(email, {})
@@ -2281,7 +2302,13 @@ def _save_success_account_exports(task: sqlite3.Row | dict[str, Any], records: l
 
 def _load_persisted_success_account_records(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, str]]:
     json_file = task_paths(task)["success_accounts_json_file"]
-    if not json_file.exists():
+    signature = path_signature(json_file)
+    cache_key = str(json_file)
+    with file_cache_lock:
+        cached = _success_account_records_cache.get(cache_key)
+        if cached and cached[0] == signature:
+            return [dict(record) for record in cached[1]]
+    if not signature[0]:
         return []
     try:
         payload = json.loads(json_file.read_text(encoding="utf-8"))
@@ -2303,15 +2330,29 @@ def _load_persisted_success_account_records(task: sqlite3.Row | dict[str, Any]) 
             continue
         seen.add(key)
         records.append(record)
+    with file_cache_lock:
+        _success_account_records_cache[cache_key] = (signature, [dict(record) for record in records])
     return records
 
 
 def extract_success_accounts(task: sqlite3.Row | dict[str, Any]) -> Path | None:
     paths = task_paths(task)
     results_file = paths["results_file"]
+    output_file = paths["success_accounts_file"]
+    json_file = paths["success_accounts_json_file"]
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     if not results_file.exists():
+        if output_file.exists() and json_file.exists():
+            return output_file
         persisted_records = _load_persisted_success_account_records(task)
         return _save_success_account_exports(task, persisted_records)
+    try:
+        results_mtime_ns = results_file.stat().st_mtime_ns
+        if output_file.exists() and json_file.exists():
+            if output_file.stat().st_mtime_ns >= results_mtime_ns and json_file.stat().st_mtime_ns >= results_mtime_ns:
+                return output_file
+    except OSError:
+        pass
     extracted: list[dict[str, str]] = []
     seen: set[str] = set()
     with results_file.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -2434,7 +2475,13 @@ def update_success_account_status_in_results_file(
 
 def load_success_account_statuses(task: sqlite3.Row | dict[str, Any]) -> dict[str, dict[str, Any]]:
     path = task_paths(task)["success_accounts_status_file"]
-    if not path.exists():
+    signature = path_signature(path)
+    cache_key = str(path)
+    with file_cache_lock:
+        cached = _json_dict_cache.get(cache_key)
+        if cached and cached[0] == signature:
+            return {key: dict(value) for key, value in cached[1].items()}
+    if not signature[0]:
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2446,6 +2493,8 @@ def load_success_account_statuses(task: sqlite3.Row | dict[str, Any]) -> dict[st
     for key, value in payload.items():
         if isinstance(key, str) and isinstance(value, dict):
             result[key] = value
+    with file_cache_lock:
+        _json_dict_cache[cache_key] = (signature, {key: dict(value) for key, value in result.items()})
     return result
 
 
@@ -2457,7 +2506,13 @@ def save_success_account_statuses(task: sqlite3.Row | dict[str, Any], statuses: 
 
 def load_task_cpamc_import_statuses(task: sqlite3.Row | dict[str, Any]) -> dict[str, dict[str, Any]]:
     path = task_paths(task)["cpamc_import_status_file"]
-    if not path.exists():
+    signature = path_signature(path)
+    cache_key = str(path)
+    with file_cache_lock:
+        cached = _json_dict_cache.get(cache_key)
+        if cached and cached[0] == signature:
+            return {key: dict(value) for key, value in cached[1].items()}
+    if not signature[0]:
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2469,6 +2524,8 @@ def load_task_cpamc_import_statuses(task: sqlite3.Row | dict[str, Any]) -> dict[
     for key, value in payload.items():
         if isinstance(key, str) and isinstance(value, dict):
             result[key] = value
+    with file_cache_lock:
+        _json_dict_cache[cache_key] = (signature, {key: dict(value) for key, value in result.items()})
     return result
 
 
@@ -2542,10 +2599,20 @@ def backfill_all_success_accounts() -> dict[str, int]:
 
 def count_result_lines(task: sqlite3.Row | dict[str, Any]) -> int:
     results_file = task_paths(task)["results_file"]
-    if not results_file.exists():
-        return 0
-    with results_file.open("r", encoding="utf-8", errors="ignore") as fh:
-        return sum(1 for line in fh if line.strip())
+    signature = path_signature(results_file)
+    cache_key = str(results_file)
+    with file_cache_lock:
+        cached = _result_line_cache.get(cache_key)
+        if cached and cached[0] == signature:
+            return cached[1]
+    if not signature[0]:
+        result = 0
+    else:
+        with results_file.open("r", encoding="utf-8", errors="ignore") as fh:
+            result = sum(1 for line in fh if line.strip())
+    with file_cache_lock:
+        _result_line_cache[cache_key] = (signature, result)
+    return result
 
 
 def create_archive(task: sqlite3.Row | dict[str, Any]) -> Path:
@@ -2565,7 +2632,13 @@ def create_archive(task: sqlite3.Row | dict[str, Any]) -> Path:
 def serialize_task(row: sqlite3.Row) -> dict[str, Any]:
     item = row_to_dict(row)
     success_accounts_file = extract_success_accounts(row)
-    success_accounts = success_account_items(row)
+    success_account_records = load_success_account_records(row)
+    success_account_statuses = load_success_account_statuses(row)
+    success_accounts = success_account_items(
+        row,
+        records=success_account_records,
+        statuses=success_account_statuses,
+    )
     item["results_count"] = count_result_lines(row)
     item["console_tail"] = read_tail(Path(item["console_path"]))
     item["success_accounts_count"] = len(success_accounts)
@@ -3534,7 +3607,7 @@ class TaskSupervisor:
 supervisor = TaskSupervisor()
 
 
-def state_payload() -> dict[str, Any]:
+def build_state_payload() -> dict[str, Any]:
     defaults = get_defaults()
     cpamc = get_cpamc_settings()
     credentials = get_credentials()
@@ -3561,6 +3634,22 @@ def state_payload() -> dict[str, Any]:
         "max_concurrent_tasks": MAX_CONCURRENT_TASKS,
         "server_now": now_iso(),
     }
+
+
+def state_payload() -> dict[str, Any]:
+    if STATE_PAYLOAD_CACHE_SECONDS <= 0:
+        return build_state_payload()
+    current_ts = time.time()
+    with file_cache_lock:
+        cached_value = _state_payload_cache.get("value")
+        expires_at = float(_state_payload_cache.get("expires_at") or 0.0)
+        if cached_value is not None and current_ts < expires_at:
+            return cached_value
+    payload = build_state_payload()
+    with file_cache_lock:
+        _state_payload_cache["value"] = payload
+        _state_payload_cache["expires_at"] = current_ts + STATE_PAYLOAD_CACHE_SECONDS
+    return payload
 
 
 @asynccontextmanager
