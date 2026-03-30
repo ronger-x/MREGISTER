@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   APP_CONFIG,
   BROWSER_AUTOMATION_TEMPLATES,
+  EMAIL_CREDENTIAL_KINDS,
   NAV_ITEMS,
   TASK_STATUSES,
   api,
@@ -21,6 +22,17 @@ import { BusyButton, Modal } from './ui.jsx';
 const SIDEBAR_LOGO_SRC = '/static/MAISHANhlogomini.png';
 const DOCS_LOG_IMAGE_SRC = '/static/docs-log-preview.jpg';
 const PROJECT_GITHUB_URL = 'https://github.com/ronger-x/MREGISTER';
+const MAIL_PROVIDER_OPTIONS = [
+  ['gptmail', 'GPTMail'],
+  ['duckmail', 'DuckMail'],
+  ['mailtm', 'mail.tm'],
+  ['tempmail_lol', 'TempMail.lol'],
+  ['temporam', 'Temporam'],
+  ['custom2925', '2925 Mail'],
+  ['moemail', 'MoeMail'],
+  ['cloudflare_temp_email', 'Cloudflare Temp Email'],
+];
+const API_KEY_REQUIRED_PROVIDERS = new Set(['gptmail', 'moemail', 'cloudflare_temp_email', 'yescaptcha']);
 const SECTION_TITLE_KEYS = {
   dashboard: 'section_overview',
   credentials: 'section_credentials',
@@ -446,6 +458,8 @@ export function ConsoleApp() {
     base_url: '',
     prefix: '',
     domain: '',
+    secret: '',
+    extra_json: '{}',
     notes: '',
   });
   const [proxyDraft, setProxyDraft] = useState({
@@ -481,7 +495,7 @@ export function ConsoleApp() {
   const modalResolverRef = useRef(null);
   const consoleRef = useRef(null);
 
-  const mailCredentials = statePayload.credentials.filter((item) => item.kind === 'gptmail');
+  const mailCredentials = statePayload.credentials.filter((item) => EMAIL_CREDENTIAL_KINDS.has(item.kind));
   const captchaCredentials = statePayload.credentials.filter((item) => item.kind === 'yescaptcha');
   const normalTasks = statePayload.tasks.filter((task) => task.source !== 'schedule');
   const filteredTasks = taskFilterStatus === 'all'
@@ -715,13 +729,17 @@ export function ConsoleApp() {
   async function handleCredentialSubmit(event) {
     event.preventDefault();
     await withBusy('credential-save', async () => {
+      const isMailProvider = credentialDraft.kind !== 'yescaptcha';
       await api('/api/credentials', {
         method: 'POST',
         body: JSON.stringify({
           ...credentialDraft,
-          base_url: credentialDraft.kind === 'gptmail' ? credentialDraft.base_url || null : null,
-          prefix: credentialDraft.kind === 'gptmail' ? credentialDraft.prefix || null : null,
-          domain: credentialDraft.kind === 'gptmail' ? credentialDraft.domain || null : null,
+          api_key: credentialDraft.api_key || null,
+          base_url: isMailProvider ? credentialDraft.base_url || null : null,
+          prefix: isMailProvider ? credentialDraft.prefix || null : null,
+          domain: isMailProvider ? credentialDraft.domain || null : null,
+          secret: isMailProvider ? credentialDraft.secret || null : null,
+          extra_json: isMailProvider ? credentialDraft.extra_json || '{}' : null,
           notes: credentialDraft.notes || null,
         }),
       });
@@ -732,6 +750,8 @@ export function ConsoleApp() {
         base_url: '',
         prefix: '',
         domain: '',
+        secret: '',
+        extra_json: '{}',
         notes: '',
       });
       await refreshState();
@@ -1386,17 +1406,21 @@ export function ConsoleApp() {
               <label className="field-card">
                 <span>{tr('field_kind')}</span>
                 <select value={credentialDraft.kind} onChange={(event) => setCredentialDraft((current) => ({ ...current, kind: event.target.value }))}>
-                  <option value="gptmail">GPTMail</option>
+                  {MAIL_PROVIDER_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   <option value="yescaptcha">YesCaptcha</option>
                 </select>
               </label>
               <label className="field-card">
-                <span>{tr('field_api_key')}</span>
-                <input required value={credentialDraft.api_key} onChange={(event) => setCredentialDraft((current) => ({ ...current, api_key: event.target.value }))} />
+                <span>{API_KEY_REQUIRED_PROVIDERS.has(credentialDraft.kind) ? tr('field_api_key') : tr('field_api_key_optional')}</span>
+                <input
+                  required={API_KEY_REQUIRED_PROVIDERS.has(credentialDraft.kind)}
+                  value={credentialDraft.api_key}
+                  onChange={(event) => setCredentialDraft((current) => ({ ...current, api_key: event.target.value }))}
+                />
               </label>
-              {credentialDraft.kind === 'gptmail' ? (
+              {credentialDraft.kind !== 'yescaptcha' ? (
                 <>
-                  <p className="field-tip field-tip--soft">{tr('gptmail_optional_hint')}</p>
+                  <p className="field-tip field-tip--soft">{tr(credentialDraft.kind === 'gptmail' ? 'gptmail_optional_hint' : 'mail_provider_optional_hint')}</p>
                   <label className="field-card">
                     <span>{tr('field_base_url')}</span>
                     <input
@@ -1421,6 +1445,23 @@ export function ConsoleApp() {
                       onChange={(event) => setCredentialDraft((current) => ({ ...current, domain: event.target.value }))}
                     />
                   </label>
+                  <label className="field-card">
+                    <span>{tr('field_secret')}</span>
+                    <input
+                      value={credentialDraft.secret}
+                      placeholder={tr('field_secret_placeholder')}
+                      onChange={(event) => setCredentialDraft((current) => ({ ...current, secret: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field-card">
+                    <span>{tr('field_extra_json')}</span>
+                    <textarea
+                      rows="6"
+                      value={credentialDraft.extra_json}
+                      placeholder={tr('field_extra_json_placeholder')}
+                      onChange={(event) => setCredentialDraft((current) => ({ ...current, extra_json: event.target.value }))}
+                    />
+                  </label>
                 </>
               ) : null}
               <label className="field-card">
@@ -1439,10 +1480,11 @@ export function ConsoleApp() {
             </div>
             <div className="entity-list">
               {statePayload.credentials.length ? statePayload.credentials.map((item) => {
-                const isDefault = item.kind === 'gptmail'
+                const isEmailCredential = EMAIL_CREDENTIAL_KINDS.has(item.kind);
+                const isDefault = isEmailCredential
                   ? statePayload.defaults.default_gptmail_credential_id === item.id
                   : statePayload.defaults.default_yescaptcha_credential_id === item.id;
-                const defaultKey = item.kind === 'gptmail' ? 'default_gptmail_credential_id' : 'default_yescaptcha_credential_id';
+                const defaultKey = isEmailCredential ? 'default_gptmail_credential_id' : 'default_yescaptcha_credential_id';
                 return (
                   <article className="entity-card" key={item.id}>
                     <div>

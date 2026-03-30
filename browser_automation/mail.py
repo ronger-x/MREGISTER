@@ -23,19 +23,30 @@ class EmailClient:
         self.service = None
 
     def is_configured(self) -> bool:
-        return self.context.mail_provider == "gptmail" and bool(self.context.gptmail_api_key)
+        provider = str(self.context.mail_provider or "").strip().lower()
+        if not provider:
+            return False
+        if provider in {"duckmail", "mailtm", "tempmail_lol", "temporam"}:
+            return True
+        return bool(self.context.mail_api_key or self.context.mail_extra_json)
 
     def create_service(self):
         if self.service is not None:
             return self.service
         if not self.is_configured():
-            raise RuntimeError("GPTMail credential is not configured for this task")
+            raise RuntimeError("Mail credential is not configured for this task")
         config = {
-            "mail_provider": "gptmail",
-            "gptmail_api_key": self.context.gptmail_api_key or "",
-            "gptmail_base_url": self.context.gptmail_base_url or "https://mail.chatgpt.org.uk",
-            "gptmail_prefix": self.context.gptmail_prefix or "",
-            "gptmail_domain": self.context.gptmail_domain or "",
+            "mail_provider": self.context.mail_provider or "",
+            "mail_api_key": self.context.mail_api_key or "",
+            "mail_base_url": self.context.mail_base_url or "",
+            "mail_prefix": self.context.mail_prefix or "",
+            "mail_domain": self.context.mail_domain or "",
+            "mail_secret": self.context.mail_secret or "",
+            "mail_extra_json": self.context.mail_extra_json or "{}",
+            "gptmail_api_key": self.context.mail_api_key or "",
+            "gptmail_base_url": self.context.mail_base_url or "https://mail.chatgpt.org.uk",
+            "gptmail_prefix": self.context.mail_prefix or "",
+            "gptmail_domain": self.context.mail_domain or "",
         }
         self.service = create_email_service(config, proxy_url=self.context.proxy)
         return self.service

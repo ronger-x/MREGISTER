@@ -1,6 +1,6 @@
 # ChatGPT / Codex 自动注册工具 v2.0
 
-支持 Skymail 与 GPTMail 的 Codex 自动注册与 OAuth Token 生成工具集。
+支持 Skymail、GPTMail、mail.tm、TempMail.lol、Temporam、2925、MoeMail、Cloudflare Temp Email 的 Codex 自动注册与 OAuth Token 生成工具集。
 
 ## ✨ v2.0 重大更新
 
@@ -21,7 +21,7 @@
 .
 ├── lib/                          # 核心库模块
 │   ├── config.py                 # 配置加载
-│   ├── skymail_client.py         # 邮件客户端工厂（Skymail / GPTMail）
+│   ├── skymail_client.py         # 邮件客户端工厂（多邮箱服务入口）
 │   ├── gptmail_client.py         # GPTMail API 客户端
 │   ├── chatgpt_client.py         # ChatGPT 注册客户端
 │   ├── oauth_client.py           # OAuth 登录客户端
@@ -35,7 +35,7 @@
 
 ## 功能特性
 
-- 🚀 支持 Skymail 自建邮箱与 GPTMail 临时邮箱
+- 🚀 支持 Skymail、GPTMail、mail.tm、TempMail.lol、Temporam、2925、MoeMail、Cloudflare Temp Email
 - 🌐 支持多个域名后缀：在config.json里面配置
 - 🤖 自动注册 ChatGPT 账号并获取验证码
 - 🔑 自动生成 OAuth Token（Access Token / Refresh Token）

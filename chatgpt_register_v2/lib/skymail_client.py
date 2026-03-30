@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 
 import requests
 
+from .extended_mail_clients import create_extended_mail_client, _load_extra_config
 from .gptmail_client import GPTMailAPIError, GPTMailClient, extract_email_id, iter_strings
 from .proxy_utils import normalize_proxy_url
 
@@ -570,7 +571,7 @@ class CloudflareTempEmailAdapter(BaseMailClient):
         if not email or not jwt_token:
             raise RuntimeError("Cloudflare Temp Email 创建邮箱失败: 响应中缺少地址或 JWT")
         self._jwt_by_email[email] = jwt_token
-        return email, email
+        return email, jwt_token
 
     def fetch_emails(self, email: str) -> list[dict[str, str]]:
         jwt_token = self._jwt_by_email.get(email)
@@ -609,6 +610,39 @@ class CloudflareTempEmailAdapter(BaseMailClient):
 def init_skymail_client(config: dict) -> BaseMailClient:
     provider = _first_text(config.get("mail_provider"), default="skymail").lower() or "skymail"
     provider = provider.replace("-", "_")
+    proxy = _first_text(config.get("proxy")) or None
+    extra_config = _load_extra_config(config.get("mail_extra_json"))
+    shared_base_url = _first_text(config.get("mail_base_url"))
+    shared_api_key = _first_text(config.get("mail_api_key"))
+    shared_prefix = _first_text(config.get("mail_prefix")) or None
+    shared_domain = _first_text(config.get("mail_domain")) or None
+    resolved_base_url = shared_base_url
+    resolved_api_key = shared_api_key
+    resolved_prefix = shared_prefix
+    resolved_domain = shared_domain
+
+    if provider == "gptmail":
+        resolved_base_url = _first_text(shared_base_url, config.get("gptmail_base_url"))
+        resolved_api_key = _first_text(shared_api_key, config.get("gptmail_api_key"))
+        resolved_prefix = _first_text(shared_prefix, config.get("gptmail_prefix")) or None
+        resolved_domain = _first_text(shared_domain, config.get("gptmail_domain")) or None
+
+    extended = create_extended_mail_client(
+        provider,
+        api_key=resolved_api_key,
+        base_url=resolved_base_url,
+        proxy=proxy,
+        prefix=resolved_prefix,
+        domain=resolved_domain,
+        secret=_first_text(config.get("mail_secret")) or None,
+        timeout=_float_value(config.get("mail_timeout"), config.get("gptmail_timeout"), default=30.0),
+        extra_config=extra_config,
+    )
+    if extended is not None:
+        print(f"📧 使用 {provider} 邮箱服务")
+        if getattr(extended, "api_base", None):
+            print(f"🌐 邮件 API: {extended.api_base}")
+        return extended
 
     if provider == "gptmail":
         api_key = _first_text(config.get("mail_api_key"), config.get("gptmail_api_key"))
@@ -620,7 +654,6 @@ def init_skymail_client(config: dict) -> BaseMailClient:
         prefix = _first_text(config.get("mail_prefix"), config.get("gptmail_prefix")) or None
         domain = _first_text(config.get("mail_domain"), config.get("gptmail_domain")) or None
         timeout = _float_value(config.get("mail_timeout"), config.get("gptmail_timeout"), default=30.0)
-        proxy = _first_text(config.get("proxy")) or None
 
         if not api_key:
             print("❌ 错误: 未配置 GPTMail API Key")
@@ -649,7 +682,6 @@ def init_skymail_client(config: dict) -> BaseMailClient:
         domain = _first_text(config.get("mail_domain")) or None
         timeout = _float_value(config.get("mail_timeout"), default=30.0)
         expiry_time = _int_value(config.get("mail_expiry_time"), default=3600000)
-        proxy = _first_text(config.get("proxy")) or None
 
         if not api_key:
             print("❌ 错误: 未配置 MoeMail API Key")
@@ -683,7 +715,6 @@ def init_skymail_client(config: dict) -> BaseMailClient:
         domain = _first_text(config.get("mail_domain")) or None
         secret = _first_text(config.get("mail_secret")) or None
         timeout = _float_value(config.get("mail_timeout"), default=30.0)
-        proxy = _first_text(config.get("proxy")) or None
 
         if not api_key:
             print("❌ 错误: 未配置 Cloudflare Temp Email 管理密钥")
@@ -714,7 +745,6 @@ def init_skymail_client(config: dict) -> BaseMailClient:
 
     admin_email = config.get("skymail_admin_email", "")
     admin_password = config.get("skymail_admin_password", "")
-    proxy = config.get("proxy", "")
     domains = config.get("skymail_domains", None)
 
     if not admin_email or not admin_password:

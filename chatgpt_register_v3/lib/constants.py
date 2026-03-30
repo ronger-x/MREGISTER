@@ -12,6 +12,11 @@ class EmailServiceType(str, Enum):
     """邮箱服务类型"""
     SKYMAIL = "skymail"
     GPTMAIL = "gptmail"
+    DUCKMAIL = "duckmail"
+    MAILTM = "mailtm"
+    TEMPMAIL_LOL = "tempmail_lol"
+    TEMPORAM = "temporam"
+    CUSTOM2925 = "custom2925"
     MOEMAIL = "moemail"
     CLOUDFLARE_TEMP_EMAIL = "cloudflare_temp_email"
 

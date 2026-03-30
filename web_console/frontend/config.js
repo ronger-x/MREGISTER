@@ -2,6 +2,16 @@ export const APP_CONFIG = window.__APP_CONFIG__ || {};
 export const T = APP_CONFIG.translations || {};
 export const BROWSER_AUTOMATION_TEMPLATES = APP_CONFIG.browserAutomationTemplates || {};
 export const SIDEBAR_STORAGE_KEY = 'mregister-react-sidebar-collapsed';
+export const EMAIL_CREDENTIAL_KINDS = new Set([
+  'gptmail',
+  'duckmail',
+  'mailtm',
+  'tempmail_lol',
+  'temporam',
+  'custom2925',
+  'moemail',
+  'cloudflare_temp_email',
+]);
 export const NAV_ITEMS = [
   ['dashboard', 'nav_dashboard'],
   ['credentials', 'nav_credentials'],
@@ -103,7 +113,7 @@ export function normalizeTaskDraft(draft, platforms, credentials, proxies) {
   const keys = getPlatformKeys(platforms);
   const platform = platforms[draft.platform] ? draft.platform : (keys[0] || 'chatgpt-register-v2');
   const spec = platforms[platform] || {};
-  const mailIds = new Set(credentials.filter((item) => item.kind === 'gptmail').map((item) => String(item.id)));
+  const mailIds = new Set(credentials.filter((item) => EMAIL_CREDENTIAL_KINDS.has(item.kind)).map((item) => String(item.id)));
   const captchaIds = new Set(credentials.filter((item) => item.kind === 'yescaptcha').map((item) => String(item.id)));
   const proxyIds = new Set(proxies.map((item) => String(item.id)));
   const next = {

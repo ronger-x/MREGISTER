@@ -38,7 +38,7 @@
   - SQLite 运行时数据库
   - Dockerfile
 - `chatgpt_register_v2/`
-  - ChatGPT 注册脚本（支持 GPTMail 适配）
+  - ChatGPT 注册脚本（支持多种邮件服务）
 - `grok-register/`
   - Grok 注册脚本
 - `docker-compose.yml`
@@ -52,15 +52,15 @@
 - `browser-automation-local` 现在支持工作流模板：前端可通过动态表单维护环境变量，不需要手写 JSON。
 - 控制台创建该平台任务后，会为每次执行生成独立运行目录，并把输出放到 `web_console/runtime/tasks/task_x/output/` 与 `web_console/runtime/tasks/task_x/runs/`。
 - 适配器通过以下环境变量接收运行上下文：`MREGISTER_PROJECT_DIR`、`MREGISTER_TASK_DIR`、`MREGISTER_OUTPUT_DIR`、`MREGISTER_RUN_DIR`、`MREGISTER_RUN_INDEX`、`MREGISTER_RESULTS_FILE`、`MREGISTER_PROXY`。
-- 选择 `browser-automation-local` 时，也可以像现有任务一样复用后台的 GPTMail 凭据；任务启动后会自动注入 `MAIL_PROVIDER`、`GPTMAIL_API_KEY`、`GPTMAIL_BASE_URL`、`GPTMAIL_PREFIX`、`GPTMAIL_DOMAIN`，供适配器自动生成邮箱和拉取验证码。
+- 选择 `browser-automation-local` 时，也可以像现有任务一样复用后台的邮件凭据；任务启动后会自动注入 `MAIL_PROVIDER`、`MAIL_API_KEY`、`MAIL_BASE_URL`、`MAIL_PREFIX`、`MAIL_DOMAIN`、`MAIL_SECRET`、`MAIL_EXTRA_JSON`，供适配器自动生成邮箱和拉取验证码。
 - 当前 `browser_automation/runner.py` 是模板入口，只负责生成运行元数据并返回成功；你可以在 `browser_automation/workflow.py` 里替换为你自己的本地浏览器自动化主逻辑。
 - 主仓库已内置模块化入口：`browser_automation/context.py`、`browser_automation/workflow.py`、`browser_automation/result.py`、`browser_automation/adapter.py`；默认 CLI 入口 `browser_automation/runner.py` 只是转发到模块化适配器。
-- 可复用公共模块已抽离到主仓库：`browser_automation/browser.py` 负责浏览器初始化，`browser_automation/email.py` 负责 GPTMail 邮箱创建与验证码轮询，`browser_automation/screenshots.py` 负责截图落盘。
+- 可复用公共模块已抽离到主仓库：`browser_automation/browser.py` 负责浏览器初始化，`browser_automation/email.py` 负责邮件服务创建与验证码轮询，`browser_automation/screenshots.py` 负责截图落盘。
 
 ### 浏览器自动化配置
 
 1. 先安装依赖：`python -m pip install -r web_console/requirements.txt`
-2. 在后台“凭据”页面添加一个 GPTMail 凭据，并设为默认值，或者在创建 `browser-automation-local` 任务时显式选择该凭据。
+2. 在后台“凭据”页面添加一个邮件凭据，并设为默认值，或者在创建 `browser-automation-local` 任务时显式选择该凭据。
 3. 在“新建任务”里选择 `browser-automation-local`：
    - `适配器路径` 默认用 `browser_automation/runner.py`
    - `无头模式` 控制是否显示浏览器
@@ -68,7 +68,7 @@
    - `附加参数` 会按命令行参数形式传给适配器
    - `环境变量 JSON` 可传你自己流程需要的键值对
 4. 创建任务后，模板工作流会在 `metadata.json` 中写入以下调试信息：
-   - 是否成功读取 GPTMail 配置
+   - 是否成功读取邮件服务配置
    - 脱敏后的生成邮箱
    - 浏览器 User-Agent
 5. 如果你要接入自己的合法网页流程，直接编辑 `browser_automation/workflow.py`：
@@ -127,7 +127,7 @@
 - 创建任务、排队执行、停止任务
 - 查看实时日志与历史日志
 - 下载任务结果压缩包
-- 管理 GPTMail、YesCaptcha、代理
+- 管理邮件凭据、YesCaptcha、代理
 - 支持本地浏览器自动化任务框架接入
 - 定时任务
 - 通过 API Key 调用外部任务接口
@@ -139,11 +139,19 @@
 
 - 已安装 Python 3.12 或 Docker / Docker Compose
 - 服务器可以访问外部网络
-- 已准备好 GPTMail API Key
+- 已准备好可用邮件服务凭据（例如 GPTMail、DuckMail、mail.tm、TempMail.lol、Temporam、2925）
 - 如需 `grok-register`，准备好 YesCaptcha Key
 - 如需代理，提前确认代理出口可用
+- 运行环境、源码文件、配置文件、输出文件与控制台日志统一使用 `UTF-8` 编码；不要使用 `GBK`、ANSI 等本地编码运行项目
 
 推荐优先使用 Docker Compose 部署，默认直接拉取 `maishanhub/mregister:main` 镜像，便于快速上线和保留运行数据；如果只是本地调试，也可以直接用 Python 启动。
+
+编码限制补充：
+
+- Windows 下手动运行 Python/uvicorn 前，建议显式设置 `PYTHONUTF8=1` 与 `PYTHONIOENCODING=utf-8`
+- PowerShell 可先执行：`$env:PYTHONUTF8="1"; $env:PYTHONIOENCODING="utf-8"`
+- CMD 可先执行：`set PYTHONUTF8=1` 和 `set PYTHONIOENCODING=utf-8`
+- 新增或修改配置文件、JSON、TXT、日志处理脚本时，默认按 `UTF-8` 读写
 
 ## 本地部署
 
@@ -247,7 +255,7 @@ docker compose down
 1. 首次打开页面，阅读 Maishan Inc. 非商业协议并滚动到底部
 2. 点击“下一步”后，手动输入“我同意此条款”
 3. 设置管理员密码并进入后台
-4. 进入“凭据”页面，新增 GPTMail 凭据
+4. 进入“凭据”页面，新增邮件凭据
 5. 如需 `grok-register`，再新增 YesCaptcha 凭据
 6. 如需固定出口，进入“代理”页面新增代理并可设置默认代理
 7. 进入“API”页面创建一个 API Key
@@ -256,7 +264,7 @@ docker compose down
 如果你只打算通过 API 调用任务，最少要完成下面两步：
 
 - 设置管理员密码
-- 创建默认 GPTMail 凭据，并生成 API Key
+- 创建默认邮件凭据，并生成 API Key
 
 ## API 调用流程
 

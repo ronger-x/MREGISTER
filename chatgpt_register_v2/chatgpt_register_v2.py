@@ -8,6 +8,23 @@ import threading
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+
+
+def _configure_utf8_stdio() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+_configure_utf8_stdio()
 
 from lib.chatgpt_client import ChatGPTClient
 from lib.config import as_bool, load_config
@@ -20,6 +37,27 @@ from lib.utils import generate_random_birthday, generate_random_name, generate_r
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 
+_output_lock = threading.Lock()
+
+
+REGISTERED_STATUS = "已注册"
+OAUTH_SUCCESS_STATUS = "已注册/OAuth成功"
+OAUTH_FAILED_STATUS = "已注册/OAuth失败"
+
+
+def _account_timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _write_account_record(config, email: str, password: str, *, status: str, mailbox_credential: str = "") -> None:
+    output_file = config.get("output_file", "registered_accounts.txt")
+    provider = str(config.get("mail_provider", "gptmail")).strip().lower().replace("-", "_") or "gptmail"
+    line = f"{email}|{password}|{_account_timestamp()}|{status}|{mailbox_credential}|{provider}\n"
+    with _output_lock:
+        with open(output_file, "a", encoding="utf-8") as handle:
+            handle.write(line)
+
+
 def register_one_account(idx, total, mail_client, token_manager, oauth_client, config, max_retries=3):
     """
     Register a single account with retries.
@@ -28,6 +66,14 @@ def register_one_account(idx, total, mail_client, token_manager, oauth_client, c
         tuple[bool, str, str, str]: (success, email, password, message)
     """
     tag = f"[{idx}/{total}]"
+
+    def _report_mail_result(email: str, success: bool, reason: str = "") -> None:
+        reporter = getattr(mail_client, "report_registration_result", None)
+        if callable(reporter) and email:
+            try:
+                reporter(email, success, reason)
+            except Exception:
+                pass
 
     for attempt in range(max_retries):
         if attempt > 0:
@@ -38,7 +84,7 @@ def register_one_account(idx, total, mail_client, token_manager, oauth_client, c
 
         try:
             print(f"{tag} 创建临时邮箱...")
-            email, _mail_token = mail_client.create_temp_email()
+            email, mailbox_credential = mail_client.create_temp_email()
             print(f"{tag} 邮箱: {email}")
 
             password = generate_random_password()
@@ -57,6 +103,7 @@ def register_one_account(idx, total, mail_client, token_manager, oauth_client, c
             )
 
             if not success:
+                _report_mail_result(email, False, msg)
                 is_tls_error = "TLS" in msg or "SSL" in msg or "curl: (35)" in msg
                 if is_tls_error and attempt < max_retries - 1:
                     print(f"{tag} ⚠️ TLS 错误，准备重试: {msg}")
@@ -65,6 +112,7 @@ def register_one_account(idx, total, mail_client, token_manager, oauth_client, c
                 return False, email, password, msg
 
             print(f"{tag} ✅ 注册成功")
+            _report_mail_result(email, True, "")
 
             enable_oauth = as_bool(config.get("enable_oauth", True))
             oauth_required = as_bool(config.get("oauth_required", True))
@@ -87,11 +135,13 @@ def register_one_account(idx, total, mail_client, token_manager, oauth_client, c
                 if tokens and tokens.get("access_token"):
                     print(f"{tag} ✅ OAuth 成功")
                     token_manager.save_tokens(email, tokens)
-
-                    output_file = config.get("output_file", "registered_accounts.txt")
-                    with threading.Lock():
-                        with open(output_file, "a", encoding="utf-8") as handle:
-                            handle.write(f"{email}----{password}----oauth=ok\n")
+                    _write_account_record(
+                        config,
+                        email,
+                        password,
+                        status=OAUTH_SUCCESS_STATUS,
+                        mailbox_credential=str(mailbox_credential or ""),
+                    )
 
                     return True, email, password, "注册成功 + OAuth 成功"
 
@@ -102,16 +152,22 @@ def register_one_account(idx, total, mail_client, token_manager, oauth_client, c
                         continue
                     return False, email, password, "OAuth 失败（必需）"
 
-                output_file = config.get("output_file", "registered_accounts.txt")
-                with threading.Lock():
-                    with open(output_file, "a", encoding="utf-8") as handle:
-                        handle.write(f"{email}----{password}----oauth=failed\n")
+                _write_account_record(
+                    config,
+                    email,
+                    password,
+                    status=OAUTH_FAILED_STATUS,
+                    mailbox_credential=str(mailbox_credential or ""),
+                )
                 return True, email, password, "注册成功（OAuth 失败）"
 
-            output_file = config.get("output_file", "registered_accounts.txt")
-            with threading.Lock():
-                with open(output_file, "a", encoding="utf-8") as handle:
-                    handle.write(f"{email}----{password}\n")
+            _write_account_record(
+                config,
+                email,
+                password,
+                status=REGISTERED_STATUS,
+                mailbox_credential=str(mailbox_credential or ""),
+            )
             return True, email, password, "注册成功"
 
         except Exception as exc:
@@ -147,7 +203,7 @@ def main():
 
     print("=" * 60)
     print("  ChatGPT 批量自动注册工具 v2.0 (模块化版本)")
-    print("  使用 GPTMail 临时邮箱" if mail_provider == "gptmail" else "  使用 Skymail 临时邮箱")
+    print(f"  使用 {mail_provider} 邮箱服务")
     print("=" * 60)
 
     total_accounts = args.num

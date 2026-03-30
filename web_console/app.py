@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import math
+import mimetypes
 import os
 import secrets
 import shutil
@@ -184,7 +185,7 @@ UI_TRANSLATIONS = {
         "section_success_accounts": "成功账号",
         "panel_defaults_title": "默认设置",
         "panel_defaults_desc": "API 创建任务时会优先使用这里的默认凭据和默认代理。",
-        "default_gptmail": "默认 GPTMail",
+        "default_gptmail": "默认邮件凭据",
         "default_yescaptcha": "默认 YesCaptcha",
         "default_proxy": "默认代理",
         "save_defaults": "保存默认设置",
@@ -192,8 +193,9 @@ UI_TRANSLATIONS = {
         "panel_recent_tasks_desc": "点任意任务可直接跳到详情页查看控制台输出。",
         "section_credentials": "凭据管理",
         "credentials_create_title": "新增凭据",
-        "credentials_create_desc": "支持 GPTMail 与 YesCaptcha，保存后可直接设为默认。",
+        "credentials_create_desc": "支持 GPTMail、DuckMail、mail.tm、TempMail.lol、Temporam、2925、MoeMail、Cloudflare Temp Email 与 YesCaptcha。",
         "gptmail_optional_hint": "GPTMail 的 Base URL、邮箱前缀、邮箱域名都有默认值，可直接留空不填写。",
+        "mail_provider_optional_hint": "大部分邮件服务只需要填写基础字段；像 2925/Temporam 这类高级配置可放到 Extra JSON。",
         "credentials_saved_title": "已保存凭据",
         "credentials_saved_desc": "支持删除、查看备注、设为默认。",
         "credential_exhausted_badge": "已耗尽",
@@ -201,12 +203,17 @@ UI_TRANSLATIONS = {
         "field_name": "名称",
         "field_kind": "类型",
         "field_api_key": "API Key",
+        "field_api_key_optional": "API Key / 密码（可选）",
         "field_base_url": "Base URL",
         "field_prefix": "邮箱前缀",
         "field_domain": "邮箱域名",
+        "field_secret": "Secret / Cookie",
+        "field_extra_json": "Extra JSON",
         "field_base_url_placeholder": "留空使用默认 Base URL",
         "field_prefix_placeholder": "留空使用默认邮箱前缀",
         "field_domain_placeholder": "留空使用默认邮箱域名",
+        "field_secret_placeholder": "例如站点密钥、Cookie 字符串或访问密码",
+        "field_extra_json_placeholder": "例如 {\"imap_host\":\"imap.2925.com\",\"imap_user\":\"you@2925.com\"}",
         "field_notes": "备注",
         "save_credential": "保存凭据",
         "copy_api_key": "复制 API Key",
@@ -434,10 +441,10 @@ UI_TRANSLATIONS = {
         "task_time_unknown": "--",
         "last_used_at": "最近使用时间 {value}",
         "unused": "暂未使用",
-        "use_default_gptmail": "使用默认 GPTMail",
+        "use_default_gptmail": "使用默认邮件凭据",
         "use_default_yescaptcha": "使用默认 YesCaptcha",
         "choose_proxy": "选择一个代理",
-        "no_default_gptmail": "不设置默认 GPTMail",
+        "no_default_gptmail": "不设置默认邮件凭据",
         "no_default_yescaptcha": "不设置默认 YesCaptcha",
         "no_default_proxy": "不使用默认代理",
         "current_default": "当前默认",
@@ -559,7 +566,7 @@ UI_TRANSLATIONS = {
         "section_success_accounts": "Success Accounts",
         "panel_defaults_title": "Default settings",
         "panel_defaults_desc": "API-created tasks will use these default credentials and proxy settings first.",
-        "default_gptmail": "Default GPTMail",
+        "default_gptmail": "Default Mail Credential",
         "default_yescaptcha": "Default YesCaptcha",
         "default_proxy": "Default proxy",
         "save_defaults": "Save defaults",
@@ -567,8 +574,9 @@ UI_TRANSLATIONS = {
         "panel_recent_tasks_desc": "Click any task to jump straight into the detail view and console output.",
         "section_credentials": "Credential Management",
         "credentials_create_title": "Add credential",
-        "credentials_create_desc": "Supports GPTMail and YesCaptcha. You can set the saved item as default immediately.",
+        "credentials_create_desc": "Supports GPTMail, DuckMail, mail.tm, TempMail.lol, Temporam, 2925, MoeMail, Cloudflare Temp Email, and YesCaptcha.",
         "gptmail_optional_hint": "For GPTMail, Base URL, email prefix, and email domain all have defaults, so you can leave them blank.",
+        "mail_provider_optional_hint": "Most mail providers only need the basic fields. Advanced 2925/Temporam settings can go into Extra JSON.",
         "credentials_saved_title": "Saved credentials",
         "credentials_saved_desc": "Delete, review notes, and set defaults here.",
         "credential_exhausted_badge": "exhausted",
@@ -576,12 +584,17 @@ UI_TRANSLATIONS = {
         "field_name": "Name",
         "field_kind": "Type",
         "field_api_key": "API Key",
+        "field_api_key_optional": "API Key / Password (Optional)",
         "field_base_url": "Base URL",
         "field_prefix": "Email prefix",
         "field_domain": "Email domain",
+        "field_secret": "Secret / Cookie",
+        "field_extra_json": "Extra JSON",
         "field_base_url_placeholder": "Leave blank to use the default Base URL",
         "field_prefix_placeholder": "Leave blank to use the default email prefix",
         "field_domain_placeholder": "Leave blank to use the default email domain",
+        "field_secret_placeholder": "For example, a site secret, cookie string, or access password",
+        "field_extra_json_placeholder": "For example {\"imap_host\":\"imap.2925.com\",\"imap_user\":\"you@2925.com\"}",
         "field_notes": "Notes",
         "save_credential": "Save credential",
         "copy_api_key": "Copy API key",
@@ -810,10 +823,10 @@ UI_TRANSLATIONS = {
         "task_time_unknown": "--",
         "last_used_at": "Last used {value}",
         "unused": "Not used yet",
-        "use_default_gptmail": "Use default GPTMail",
+        "use_default_gptmail": "Use default mail credential",
         "use_default_yescaptcha": "Use default YesCaptcha",
         "choose_proxy": "Choose a proxy",
-        "no_default_gptmail": "No default GPTMail",
+        "no_default_gptmail": "No default mail credential",
         "no_default_yescaptcha": "No default YesCaptcha",
         "no_default_proxy": "No default proxy",
         "current_default": "Current default",
@@ -911,6 +924,17 @@ DEFAULT_SETTING_KEYS = {
     "default_proxy_id": None,
 }
 
+EMAIL_CREDENTIAL_KINDS = {
+    "gptmail",
+    "duckmail",
+    "mailtm",
+    "tempmail_lol",
+    "temporam",
+    "custom2925",
+    "moemail",
+    "cloudflare_temp_email",
+}
+
 CPAMC_SETTING_KEYS = {
     "cpamc_enabled": "0",
     "cpamc_base_url": "",
@@ -921,6 +945,12 @@ CPAMC_SETTING_KEYS = {
 
 db_lock = threading.RLock()
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+
+
+# Windows may inherit incorrect registry mappings for JavaScript module files.
+# Force the standard web MIME types before StaticFiles starts serving assets.
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("application/javascript", ".mjs")
 
 
 def now() -> datetime:
@@ -986,6 +1016,8 @@ def init_db() -> None:
                 base_url TEXT,
                 prefix TEXT,
                 domain TEXT,
+                secret TEXT,
+                extra_json TEXT,
                 notes TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -1088,6 +1120,8 @@ def init_db() -> None:
                 "is_exhausted": "INTEGER NOT NULL DEFAULT 0",
                 "exhausted_at": "TEXT",
                 "exhausted_reason": "TEXT",
+                "secret": "TEXT",
+                "extra_json": "TEXT",
             },
         )
         ensure_columns(
@@ -1322,8 +1356,8 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
     if platform not in {"chatgpt-register-v2", "chatgpt-register-v3"}:
         raise HTTPException(status_code=400, detail="OAuth token regeneration is only supported for ChatGPT Register v2/v3 tasks")
 
-    accounts = load_success_accounts(task)
-    if (email, password) not in accounts:
+    account = find_success_account_record(task, email=email, password=password)
+    if account is None:
         raise HTTPException(status_code=404, detail="The specified success account was not found in this task")
 
     credential_id = task["email_credential_id"]
@@ -1335,21 +1369,21 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
     output_dir = Path(task["task_dir"]) / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    config = {
-        "mail_provider": "gptmail",
-        "gptmail_api_key": credential["api_key"],
-        "gptmail_base_url": credential["base_url"] or "https://mail.chatgpt.org.uk",
-        "gptmail_prefix": credential["prefix"] or "",
-        "gptmail_domain": credential["domain"] or "",
-        "proxy": proxy,
-        "ak_file": str(output_dir / "ak.txt"),
-        "rk_file": str(output_dir / "rk.txt"),
-        "token_json_dir": str(output_dir / "tokens"),
-        "upload_api_url": "",
-        "upload_api_token": "",
-        "enable_oauth": True,
-        "oauth_required": True,
-    }
+    config = build_email_credential_config(credential, proxy=proxy)
+    account_provider = str(account.get("provider") or "").strip().lower().replace("-", "_")
+    if account_provider:
+        config["mail_provider"] = account_provider
+    config.update(
+        {
+            "ak_file": str(output_dir / "ak.txt"),
+            "rk_file": str(output_dir / "rk.txt"),
+            "token_json_dir": str(output_dir / "tokens"),
+            "upload_api_url": "",
+            "upload_api_token": "",
+            "enable_oauth": True,
+            "oauth_required": True,
+        }
+    )
 
     append_task_console(task, f"Starting OAuth token regeneration for {email}.")
 
@@ -1359,7 +1393,16 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
         from chatgpt_register_v2.lib.skymail_client import init_mail_client
         from chatgpt_register_v2.lib.token_manager import TokenManager
 
+        provider = str(config.get("mail_provider") or "").strip().lower().replace("-", "_")
+        mailbox_credential = str(account.get("mailbox_credential") or "").strip()
+        if provider in SUCCESS_ACCOUNT_SEEDED_MAILBOX_PROVIDERS and not mailbox_credential:
+            raise RuntimeError(
+                f"Missing stored mailbox credential for provider={provider}. "
+                "This account may have been created before mailbox credentials were persisted."
+            )
+
         mail_client = init_mail_client(config)
+        seed_mail_client_for_success_account(mail_client, account)
         token_manager = TokenManager(config)
         chatgpt_client = ChatGPTClient(proxy=proxy or None, verbose=False)
         oauth_client = OAuthClient(config, proxy=proxy or None, verbose=False)
@@ -1392,14 +1435,23 @@ def regenerate_success_account_oauth_token(task: sqlite3.Row, email: str, passwo
                 cpamc_result = {"imported": False, "error": str(exc), "name": token_json_path.name}
                 append_task_console(task, f"Failed to import regenerated OAuth token to CPAMC for {email}: {exc}")
         statuses = load_success_account_statuses(task)
-        if cpamc_result:
-            statuses[email] = {
-                "cpamc_imported": bool(cpamc_result.get("imported")),
-                "cpamc_error": str(cpamc_result.get("error") or ""),
+        current_status = dict(statuses.get(email) or {})
+        current_status.update(
+            {
                 "token_json": str(token_json_path),
                 "updated_at": now_iso(),
             }
-            save_success_account_statuses(task, statuses)
+        )
+        if cpamc_result is not None:
+            current_status["cpamc_imported"] = bool(cpamc_result.get("imported"))
+            current_status["cpamc_error"] = str(cpamc_result.get("error") or "")
+        statuses[email] = current_status
+        save_success_account_statuses(task, statuses)
+        update_success_account_status_in_results_file(
+            task,
+            email=email,
+            new_status=SUCCESS_ACCOUNT_OAUTH_SUCCESS_STATUS,
+        )
         append_task_console(task, f"OAuth token regeneration succeeded for {email}.")
         return {
             "ok": True,
@@ -1447,8 +1499,12 @@ def regenerate_success_account_oauth_batch(items: list[SuccessAccountOAuthBatchI
             task_accounts = account_cache.get(task_id)
             if task_accounts is None:
                 task_accounts = {
-                    email.strip().lower(): (email, password)
-                    for email, password in load_success_accounts(task)
+                    str(record.get("email") or "").strip().lower(): (
+                        str(record.get("email") or "").strip(),
+                        str(record.get("password") or "").strip(),
+                    )
+                    for record in load_success_account_records(task)
+                    if str(record.get("email") or "").strip() and str(record.get("password") or "").strip()
                 }
                 account_cache[task_id] = task_accounts
             matched = task_accounts.get(requested_email.lower())
@@ -1510,12 +1566,17 @@ def resolve_success_account_batch_items(payload: SuccessAccountOAuthBatchRequest
 def success_account_items(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, Any]]:
     statuses = load_success_account_statuses(task)
     items: list[dict[str, Any]] = []
-    for email, password in load_success_accounts(task):
+    for record in load_success_account_records(task):
+        email = str(record.get("email") or "").strip()
+        password = str(record.get("password") or "").strip()
         status = statuses.get(email, {})
         items.append(
             {
                 "email": email,
                 "password": password,
+                "status": str(record.get("status") or ""),
+                "provider": str(record.get("provider") or ""),
+                "mailbox_credential_present": bool(str(record.get("mailbox_credential") or "").strip()),
                 "cpamc_imported": bool(status.get("cpamc_imported")),
                 "cpamc_error": str(status.get("cpamc_error") or ""),
                 "token_json": str(status.get("token_json") or ""),
@@ -1778,8 +1839,28 @@ def get_credential(credential_id: int) -> sqlite3.Row:
     return row
 
 
+def is_email_credential_kind(kind: str | None) -> bool:
+    return str(kind or "").strip().lower() in EMAIL_CREDENTIAL_KINDS
+
+
 def credential_is_exhausted(credential: sqlite3.Row | dict[str, Any]) -> bool:
     return bool(int(credential["is_exhausted"] or 0))
+
+
+def get_available_email_credential(*, exclude_ids: set[int] | None = None) -> sqlite3.Row | None:
+    params: list[Any] = []
+    placeholders = ", ".join("?" for _ in sorted(EMAIL_CREDENTIAL_KINDS))
+    query = (
+        f"SELECT * FROM credentials WHERE kind IN ({placeholders}) "
+        "AND (kind != 'gptmail' OR COALESCE(is_exhausted, 0) = 0)"
+    )
+    params.extend(sorted(EMAIL_CREDENTIAL_KINDS))
+    if exclude_ids:
+        excluded = sorted(exclude_ids)
+        query += f" AND id NOT IN ({', '.join('?' for _ in excluded)})"
+        params.extend(excluded)
+    query += " ORDER BY id ASC LIMIT 1"
+    return fetch_one(query, tuple(params))
 
 
 def get_available_gptmail_credential(*, exclude_ids: set[int] | None = None) -> sqlite3.Row | None:
@@ -1997,18 +2078,21 @@ def resolve_required_credential(kind: str, credential_id: int | None) -> sqlite3
         selected_id = defaults["default_gptmail_credential_id"] if kind == "gptmail" else defaults["default_yescaptcha_credential_id"]
     if selected_id is None:
         if kind == "gptmail":
-            fallback = get_available_gptmail_credential()
+            fallback = get_available_email_credential()
             if fallback is not None:
                 return fallback
         raise HTTPException(status_code=400, detail=f"No default {kind} credential is configured")
     credential = get_credential(int(selected_id))
-    if credential["kind"] != kind:
+    if kind == "gptmail":
+        if not is_email_credential_kind(str(credential["kind"] or "")):
+            raise HTTPException(status_code=400, detail=f"Credential {selected_id} is not an email credential")
+    elif credential["kind"] != kind:
         raise HTTPException(status_code=400, detail=f"Credential {selected_id} is not of type {kind}")
-    if kind == "gptmail" and credential_is_exhausted(credential):
-        fallback = get_available_gptmail_credential(exclude_ids={int(credential["id"])})
+    if kind == "gptmail" and str(credential["kind"] or "") == "gptmail" and credential_is_exhausted(credential):
+        fallback = get_available_email_credential(exclude_ids={int(credential["id"])})
         if fallback is not None:
             return fallback
-        raise HTTPException(status_code=400, detail="No available GPTMail credential remains")
+        raise HTTPException(status_code=400, detail="No available email credential remains")
     return credential
 
 
@@ -2047,91 +2131,306 @@ def task_paths(task: sqlite3.Row | dict[str, Any]) -> dict[str, Path]:
         "console_path": Path(task["console_path"]),
         "results_file": results_file,
         "success_accounts_file": task_dir / "output" / "success_accounts.txt",
+        "success_accounts_json_file": task_dir / "output" / "success_accounts.json",
         "success_accounts_status_file": task_dir / "output" / "success_accounts_status.json",
         "cpamc_import_status_file": task_dir / "output" / "cpamc_import_status.json",
         "archive_path": archive_path,
     }
 
 
-def _parse_success_account_line(platform: str, line: str) -> str | None:
+SUCCESS_ACCOUNT_REGISTERED_STATUS = "已注册"
+SUCCESS_ACCOUNT_OAUTH_SUCCESS_STATUS = "已注册/OAuth成功"
+SUCCESS_ACCOUNT_OAUTH_FAILED_STATUS = "已注册/OAuth失败"
+SUCCESS_ACCOUNT_PIPE_PLATFORMS = {"chatgpt-register-v2", "chatgpt-register-v3"}
+SUCCESS_ACCOUNT_SEEDED_MAILBOX_PROVIDERS = {"mailtm", "duckmail", "tempmail_lol", "cloudflare_temp_email"}
+
+
+def success_account_timestamp() -> str:
+    return now().strftime("%Y%m%d_%H%M%S")
+
+
+def task_success_account_provider(task: sqlite3.Row | dict[str, Any]) -> str:
+    credential_id = task.get("email_credential_id") if isinstance(task, dict) else task["email_credential_id"]
+    if not credential_id:
+        return ""
+    try:
+        credential = get_credential(int(credential_id))
+    except Exception:
+        return ""
+    return str(credential["kind"] or "").strip().lower().replace("-", "_")
+
+
+def _oauth_suffix_to_status(extra_parts: list[str]) -> str:
+    normalized = [part.strip().lower() for part in extra_parts if str(part).strip()]
+    if any(part == "oauth=ok" for part in normalized):
+        return SUCCESS_ACCOUNT_OAUTH_SUCCESS_STATUS
+    if any(part == "oauth=failed" for part in normalized):
+        return SUCCESS_ACCOUNT_OAUTH_FAILED_STATUS
+    return SUCCESS_ACCOUNT_REGISTERED_STATUS
+
+
+def parse_success_account_record(task: sqlite3.Row | dict[str, Any], line: str) -> dict[str, str] | None:
     value = line.strip()
     if not value:
         return None
+    platform = str(task["platform"])
+    provider = task_success_account_provider(task)
+
+    if "|" in value:
+        parts = [part.strip() for part in value.split("|")]
+        if len(parts) >= 2 and "@" in parts[0] and parts[1]:
+            return {
+                "email": parts[0],
+                "password": parts[1],
+                "timestamp": parts[2] if len(parts) > 2 else "",
+                "status": parts[3] if len(parts) > 3 else SUCCESS_ACCOUNT_REGISTERED_STATUS,
+                "mailbox_credential": parts[4] if len(parts) > 4 else "",
+                "provider": (parts[5] if len(parts) > 5 else provider).strip().lower().replace("-", "_"),
+            }
+
     if platform in {"chatgpt-register-v2", "chatgpt-register-v3", "browser-automation-local"}:
         parts = [part.strip() for part in value.split("----")]
-        if len(parts) < 2:
-            return None
-        email, password = parts[0], parts[1]
-        if "@" not in email or not password:
-            return None
-        return f"{email}----{password}"
+        if len(parts) >= 2 and "@" in parts[0] and parts[1]:
+            return {
+                "email": parts[0],
+                "password": parts[1],
+                "timestamp": "",
+                "status": _oauth_suffix_to_status(parts[2:]),
+                "mailbox_credential": "",
+                "provider": provider,
+            }
+        return None
+
     if platform == "grok-register":
         parts = [part.strip() for part in value.split(":")]
-        if len(parts) < 2:
-            return None
-        email, password = parts[0], parts[1]
-        if "@" not in email or not password:
-            return None
-        return f"{email}----{password}"
+        if len(parts) >= 2 and "@" in parts[0] and parts[1]:
+            return {
+                "email": parts[0],
+                "password": parts[1],
+                "timestamp": "",
+                "status": SUCCESS_ACCOUNT_REGISTERED_STATUS,
+                "mailbox_credential": "",
+                "provider": provider,
+            }
+        return None
+
     if platform == "openai-register":
-        if "----" in value:
-            parts = [part.strip() for part in value.split("----")]
-        else:
-            parts = [part.strip() for part in value.split(":")]
-        if len(parts) < 2:
-            return None
-        email, password = parts[0], parts[1]
-        if "@" not in email or not password:
-            return None
-        return f"{email}----{password}"
+        parts = [part.strip() for part in (value.split("----") if "----" in value else value.split(":"))]
+        if len(parts) >= 2 and "@" in parts[0] and parts[1]:
+            return {
+                "email": parts[0],
+                "password": parts[1],
+                "timestamp": "",
+                "status": SUCCESS_ACCOUNT_REGISTERED_STATUS,
+                "mailbox_credential": "",
+                "provider": provider,
+            }
+        return None
+
     return None
+
+
+def format_success_account_record(task: sqlite3.Row | dict[str, Any], record: dict[str, str], *, force_pipe: bool = False) -> str:
+    email = str(record.get("email") or "").strip()
+    password = str(record.get("password") or "").strip()
+    if not email or not password:
+        return ""
+    use_pipe = force_pipe or str(task["platform"]) in SUCCESS_ACCOUNT_PIPE_PLATFORMS
+    if use_pipe:
+        return "|".join(
+            [
+                email,
+                password,
+                str(record.get("timestamp") or "").strip(),
+                str(record.get("status") or SUCCESS_ACCOUNT_REGISTERED_STATUS).strip(),
+                str(record.get("mailbox_credential") or "").strip(),
+                str(record.get("provider") or task_success_account_provider(task)).strip().lower().replace("-", "_"),
+            ]
+        )
+    return f"{email}----{password}"
+
+
+def _normalize_success_account_record(task: sqlite3.Row | dict[str, Any], record: dict[str, Any]) -> dict[str, str]:
+    return {
+        "email": str(record.get("email") or "").strip(),
+        "password": str(record.get("password") or "").strip(),
+        "timestamp": str(record.get("timestamp") or "").strip(),
+        "status": str(record.get("status") or SUCCESS_ACCOUNT_REGISTERED_STATUS).strip(),
+        "mailbox_credential": str(record.get("mailbox_credential") or "").strip(),
+        "provider": str(record.get("provider") or task_success_account_provider(task)).strip().lower().replace("-", "_"),
+    }
+
+
+def _save_success_account_exports(task: sqlite3.Row | dict[str, Any], records: list[dict[str, str]]) -> Path:
+    paths = task_paths(task)
+    output_file = paths["success_accounts_file"]
+    json_file = paths["success_accounts_json_file"]
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    normalized_records = [
+        normalized
+        for record in records
+        if (normalized := _normalize_success_account_record(task, record)).get("email")
+        and normalized.get("password")
+    ]
+    rendered_lines = [format_success_account_record(task, record) for record in normalized_records]
+
+    output_file.write_text(("\n".join(rendered_lines) + "\n") if rendered_lines else "", encoding="utf-8")
+    json_file.write_text(json.dumps(normalized_records, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_file
+
+
+def _load_persisted_success_account_records(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, str]]:
+    json_file = task_paths(task)["success_accounts_json_file"]
+    if not json_file.exists():
+        return []
+    try:
+        payload = json.loads(json_file.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        record = _normalize_success_account_record(task, item)
+        if not record["email"] or not record["password"]:
+            continue
+        key = f"{record['email'].lower()}----{record['password']}"
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(record)
+    return records
 
 
 def extract_success_accounts(task: sqlite3.Row | dict[str, Any]) -> Path | None:
     paths = task_paths(task)
     results_file = paths["results_file"]
-    output_file = paths["success_accounts_file"]
     if not results_file.exists():
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text("", encoding="utf-8")
-        return output_file
-    extracted: list[str] = []
+        persisted_records = _load_persisted_success_account_records(task)
+        return _save_success_account_exports(task, persisted_records)
+    extracted: list[dict[str, str]] = []
     seen: set[str] = set()
-    platform = str(task["platform"])
     with results_file.open("r", encoding="utf-8", errors="ignore") as handle:
         for raw_line in handle:
-            value = _parse_success_account_line(platform, raw_line)
-            if not value:
+            record = parse_success_account_record(task, raw_line)
+            if not record:
                 continue
-            if value in seen:
-                continue
-            seen.add(value)
-            extracted.append(value)
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    output_file.write_text(("\n".join(extracted) + "\n") if extracted else "", encoding="utf-8")
-    return output_file
-
-
-def load_success_accounts(task: sqlite3.Row | dict[str, Any]) -> list[tuple[str, str]]:
-    path = extract_success_accounts(task)
-    if path is None or not path.exists():
-        return []
-    accounts: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    with path.open("r", encoding="utf-8", errors="ignore") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line or "----" not in line:
-                continue
-            email, password = [part.strip() for part in line.split("----", 1)]
-            if not email or not password:
-                continue
-            key = f"{email}----{password}"
+            key = f"{record['email'].lower()}----{record['password']}"
             if key in seen:
                 continue
             seen.add(key)
-            accounts.append((email, password))
-    return accounts
+            extracted.append(_normalize_success_account_record(task, record))
+    return _save_success_account_exports(task, extracted)
+
+
+def load_success_account_records(task: sqlite3.Row | dict[str, Any]) -> list[dict[str, str]]:
+    extract_success_accounts(task)
+    persisted_records = _load_persisted_success_account_records(task)
+    if persisted_records:
+        return persisted_records
+    path = task_paths(task)["success_accounts_file"]
+    if not path.exists():
+        return []
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for raw_line in handle:
+            record = parse_success_account_record(task, raw_line)
+            if not record:
+                continue
+            key = f"{record['email'].lower()}----{record['password']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            records.append(record)
+    return records
+
+
+def load_success_account_mailboxes(task: sqlite3.Row | dict[str, Any]) -> list[tuple[str, str, str]]:
+    return [
+        (
+            str(record.get("email") or "").strip(),
+            str(record.get("password") or "").strip(),
+            str(record.get("mailbox_credential") or "").strip(),
+        )
+        for record in load_success_account_records(task)
+        if str(record.get("email") or "").strip() and str(record.get("password") or "").strip()
+    ]
+
+
+def load_success_accounts(task: sqlite3.Row | dict[str, Any]) -> list[tuple[str, str]]:
+    return [
+        (str(record.get("email") or "").strip(), str(record.get("password") or "").strip())
+        for record in load_success_account_records(task)
+        if str(record.get("email") or "").strip() and str(record.get("password") or "").strip()
+    ]
+
+
+def find_success_account_record(
+    task: sqlite3.Row | dict[str, Any],
+    *,
+    email: str,
+    password: str | None = None,
+) -> dict[str, str] | None:
+    normalized_email = email.strip().lower()
+    normalized_password = (password or "").strip()
+    for record in load_success_account_records(task):
+        if str(record.get("email") or "").strip().lower() != normalized_email:
+            continue
+        if normalized_password and str(record.get("password") or "").strip() != normalized_password:
+            continue
+        return record
+    return None
+
+
+def seed_mail_client_for_success_account(mail_client: Any, record: dict[str, str]) -> None:
+    provider = str(record.get("provider") or "").strip().lower().replace("-", "_")
+    email = str(record.get("email") or "").strip()
+    mailbox_credential = str(record.get("mailbox_credential") or "").strip()
+    if not email or not provider or not mailbox_credential:
+        return
+    if provider in {"mailtm", "duckmail"} and hasattr(mail_client, "_accounts"):
+        existing = dict(getattr(mail_client, "_accounts", {}).get(email) or {})
+        existing["password"] = mailbox_credential
+        getattr(mail_client, "_accounts")[email] = existing
+    elif provider == "tempmail_lol" and hasattr(mail_client, "_tokens"):
+        getattr(mail_client, "_tokens")[email] = mailbox_credential
+    elif provider == "cloudflare_temp_email" and hasattr(mail_client, "_jwt_by_email"):
+        getattr(mail_client, "_jwt_by_email")[email] = mailbox_credential
+
+
+def update_success_account_status_in_results_file(
+    task: sqlite3.Row | dict[str, Any],
+    *,
+    email: str,
+    new_status: str,
+) -> None:
+    results_file = task_paths(task)["results_file"]
+    if not results_file.exists():
+        return
+    lines = results_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+    updated_lines: list[str] = []
+    found = False
+    for raw_line in lines:
+        record = parse_success_account_record(task, raw_line)
+        if not record or str(record.get("email") or "").strip().lower() != email.strip().lower():
+            updated_lines.append(raw_line)
+            continue
+        record["timestamp"] = success_account_timestamp()
+        record["status"] = new_status
+        if not str(record.get("provider") or "").strip():
+            record["provider"] = task_success_account_provider(task)
+        updated_lines.append(format_success_account_record(task, record, force_pipe=True))
+        found = True
+    if not found:
+        return
+    results_file.write_text("".join(f"{line}\n" for line in updated_lines), encoding="utf-8")
+    extract_success_accounts(task)
 
 
 def load_success_account_statuses(task: sqlite3.Row | dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -2305,10 +2604,12 @@ def dashboard_summary() -> dict[str, Any]:
 class CredentialCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: str
-    api_key: str = Field(min_length=1)
+    api_key: str | None = None
     base_url: str | None = None
     prefix: str | None = None
     domain: str | None = None
+    secret: str | None = None
+    extra_json: str | None = None
     notes: str | None = None
 
 
@@ -2420,8 +2721,8 @@ def clone_task_config_from_requested(*, requested: dict[str, Any], source: str, 
     email_credential_id = requested.get("email_credential_id")
     if email_credential_id is not None:
         credential = get_credential(int(email_credential_id))
-        if credential["kind"] != "gptmail":
-            raise HTTPException(status_code=400, detail="Original GPTMail credential is no longer valid")
+        if not is_email_credential_kind(str(credential["kind"] or "")):
+            raise HTTPException(status_code=400, detail="Original email credential is no longer valid")
         email_credential_id = int(email_credential_id)
 
     captcha_credential_id = requested.get("captcha_credential_id")
@@ -2595,18 +2896,51 @@ def resolve_task_configuration(
     )
 
 
+def build_email_credential_config(credential: sqlite3.Row | dict[str, Any], proxy: str | None = None) -> dict[str, Any]:
+    provider = str(credential["kind"] or "").strip().lower()
+    config = {
+        "mail_provider": provider,
+        "mail_api_key": str(credential["api_key"] or ""),
+        "mail_base_url": str(credential["base_url"] or ""),
+        "mail_prefix": str(credential["prefix"] or ""),
+        "mail_domain": str(credential["domain"] or ""),
+        "mail_secret": str(credential.get("secret") if isinstance(credential, dict) else credential["secret"] or ""),
+        "mail_extra_json": str(credential.get("extra_json") if isinstance(credential, dict) else credential["extra_json"] or "{}"),
+    }
+    if provider == "gptmail":
+        config.update(
+            {
+                "gptmail_api_key": str(credential["api_key"] or ""),
+                "gptmail_base_url": str(credential["base_url"] or "https://mail.chatgpt.org.uk"),
+                "gptmail_prefix": str(credential["prefix"] or ""),
+                "gptmail_domain": str(credential["domain"] or ""),
+            }
+        )
+    if proxy:
+        config["proxy"] = proxy
+    return config
+
+
 def apply_email_credential_env(env: dict[str, str], credential_id: int | None) -> None:
     if not credential_id:
         return
     credential = get_credential(int(credential_id))
-    env["MAIL_PROVIDER"] = "gptmail"
-    env["GPTMAIL_API_KEY"] = credential["api_key"]
-    if credential["base_url"]:
-        env["GPTMAIL_BASE_URL"] = credential["base_url"]
-    if credential["prefix"]:
-        env["GPTMAIL_PREFIX"] = credential["prefix"]
-    if credential["domain"]:
-        env["GPTMAIL_DOMAIN"] = credential["domain"]
+    config = build_email_credential_config(credential)
+    env["MAIL_PROVIDER"] = str(config.get("mail_provider") or "")
+    env["MAIL_API_KEY"] = str(config.get("mail_api_key") or "")
+    env["MAIL_BASE_URL"] = str(config.get("mail_base_url") or "")
+    env["MAIL_PREFIX"] = str(config.get("mail_prefix") or "")
+    env["MAIL_DOMAIN"] = str(config.get("mail_domain") or "")
+    env["MAIL_SECRET"] = str(config.get("mail_secret") or "")
+    env["MAIL_EXTRA_JSON"] = str(config.get("mail_extra_json") or "{}")
+    if config.get("gptmail_api_key"):
+        env["GPTMAIL_API_KEY"] = str(config["gptmail_api_key"])
+    if config.get("gptmail_base_url"):
+        env["GPTMAIL_BASE_URL"] = str(config["gptmail_base_url"])
+    if config.get("gptmail_prefix"):
+        env["GPTMAIL_PREFIX"] = str(config["gptmail_prefix"])
+    if config.get("gptmail_domain"):
+        env["GPTMAIL_DOMAIN"] = str(config["gptmail_domain"])
 
 
 def insert_task(*, name: str, config: TaskResolvedConfig) -> int:
@@ -2785,6 +3119,8 @@ class TaskSupervisor:
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         stdin_payload: str | None = None
 
         if task["platform"] == "browser-automation-local":
@@ -2849,23 +3185,15 @@ class TaskSupervisor:
                 command.extend(["--proxy", str(task["proxy"])])
             cwd = ROOT_DIR / "openai-register"
         elif task["platform"] == "chatgpt-register-v2":
-            credential = get_credential(int(task["email_credential_id"]))
             output_dir = task_dir / "output"
             output_dir.mkdir(parents=True, exist_ok=True)
-            env["MAIL_PROVIDER"] = "gptmail"
-            env["GPTMAIL_API_KEY"] = credential["api_key"]
+            apply_email_credential_env(env, task["email_credential_id"])
             env["OUTPUT_FILE"] = str(output_dir / "registered_accounts.txt")
             env["AK_FILE"] = str(output_dir / "ak.txt")
             env["RK_FILE"] = str(output_dir / "rk.txt")
             env["TOKEN_JSON_DIR"] = str(output_dir / "tokens")
             if task["proxy"]:
                 env["PROXY"] = str(task["proxy"])
-            if credential["base_url"]:
-                env["GPTMAIL_BASE_URL"] = credential["base_url"]
-            if credential["prefix"]:
-                env["GPTMAIL_PREFIX"] = credential["prefix"]
-            if credential["domain"]:
-                env["GPTMAIL_DOMAIN"] = credential["domain"]
             command = [
                 sys.executable,
                 str(ROOT_DIR / "chatgpt_register_v2" / "chatgpt_register_v2.py"),
@@ -2876,23 +3204,15 @@ class TaskSupervisor:
             ]
             cwd = ROOT_DIR / "chatgpt_register_v2"
         elif task["platform"] == "chatgpt-register-v3":
-            credential = get_credential(int(task["email_credential_id"]))
             output_dir = task_dir / "output"
             output_dir.mkdir(parents=True, exist_ok=True)
-            env["MAIL_PROVIDER"] = "gptmail"
-            env["GPTMAIL_API_KEY"] = credential["api_key"]
+            apply_email_credential_env(env, task["email_credential_id"])
             env["OUTPUT_FILE"] = str(output_dir / "registered_accounts.txt")
             env["AK_FILE"] = str(output_dir / "ak.txt")
             env["RK_FILE"] = str(output_dir / "rk.txt")
             env["TOKEN_JSON_DIR"] = str(output_dir / "tokens")
             if task["proxy"]:
                 env["PROXY"] = str(task["proxy"])
-            if credential["base_url"]:
-                env["MAIL_BASE_URL"] = credential["base_url"]
-            if credential["prefix"]:
-                env["MAIL_PREFIX"] = credential["prefix"]
-            if credential["domain"]:
-                env["MAIL_DOMAIN"] = credential["domain"]
             command = [
                 sys.executable,
                 str(ROOT_DIR / "chatgpt_register_v3" / "chatgpt_register_v3.py"),
@@ -2953,9 +3273,9 @@ class TaskSupervisor:
         credential = get_credential(int(credential_id))
         if credential["kind"] != "gptmail" or not credential_is_exhausted(credential):
             return task
-        replacement = get_available_gptmail_credential(exclude_ids={int(credential["id"])})
+        replacement = get_available_email_credential(exclude_ids={int(credential["id"])})
         if replacement is None:
-            message = "No available GPTMail credential remains after the current credential was marked exhausted."
+            message = "No available email credential remains after the current credential was marked exhausted."
             append_task_console(task, message)
             execute_no_return(
                 "UPDATE tasks SET status = 'failed', finished_at = ?, last_error = ? WHERE id = ?",
@@ -2964,7 +3284,7 @@ class TaskSupervisor:
             return None
         append_task_console(
             task,
-            f"GPTMail credential '{credential['name']}' is exhausted. Switched to '{replacement['name']}' before launch.",
+            f"Mail credential '{credential['name']}' is exhausted. Switched to '{replacement['name']}' before launch.",
         )
         execute_no_return("UPDATE tasks SET email_credential_id = ?, last_error = NULL WHERE id = ?", (int(replacement["id"]), int(task["id"])))
         return get_task(int(task["id"]))
@@ -3160,11 +3480,11 @@ class TaskSupervisor:
         if credential["kind"] != "gptmail":
             return False
         mark_credential_exhausted(credential, reason)
-        replacement = get_available_gptmail_credential(exclude_ids={int(credential["id"])})
+        replacement = get_available_email_credential(exclude_ids={int(credential["id"])})
         if replacement is None:
             append_task_console(
                 task,
-                f"Marked GPTMail credential '{credential['name']}' as exhausted. No replacement GPTMail credential is available.",
+                f"Marked GPTMail credential '{credential['name']}' as exhausted. No replacement email credential is available.",
             )
             return False
         execute_no_return("UPDATE tasks SET email_credential_id = ? WHERE id = ?", (int(replacement["id"]), int(task["id"])))
@@ -3323,8 +3643,8 @@ async def api_state(request: Request) -> JSONResponse:
 @app.post("/api/defaults")
 async def update_defaults(payload: DefaultSettingsPayload, request: Request) -> JSONResponse:
     require_authenticated(request)
-    if payload.default_gptmail_credential_id is not None and get_credential(payload.default_gptmail_credential_id)["kind"] != "gptmail":
-        raise HTTPException(status_code=400, detail="Default GPTMail credential is invalid")
+    if payload.default_gptmail_credential_id is not None and not is_email_credential_kind(str(get_credential(payload.default_gptmail_credential_id)["kind"] or "")):
+        raise HTTPException(status_code=400, detail="Default email credential is invalid")
     if payload.default_yescaptcha_credential_id is not None and get_credential(payload.default_yescaptcha_credential_id)["kind"] != "yescaptcha":
         raise HTTPException(status_code=400, detail="Default YesCaptcha credential is invalid")
     if payload.default_proxy_id is not None:
@@ -3416,21 +3736,36 @@ async def test_cpamc_settings(payload: CpamcSettingsPayload, request: Request) -
 @app.post("/api/credentials")
 async def create_credential(payload: CredentialCreate, request: Request) -> JSONResponse:
     require_authenticated(request)
-    if payload.kind not in {"gptmail", "yescaptcha"}:
+    if payload.kind not in EMAIL_CREDENTIAL_KINDS | {"yescaptcha"}:
         raise HTTPException(status_code=400, detail="Unsupported credential kind")
+    extra_json = (payload.extra_json or "").strip() or None
+    if extra_json is not None:
+        try:
+            parsed_extra = json.loads(extra_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid extra JSON: {exc.msg}") from exc
+        if not isinstance(parsed_extra, dict):
+            raise HTTPException(status_code=400, detail="Extra JSON must be an object")
+        extra_json = json.dumps(parsed_extra, ensure_ascii=False)
+    if payload.kind == "yescaptcha" and not str(payload.api_key or "").strip():
+        raise HTTPException(status_code=400, detail="YesCaptcha API Key is required")
+    if payload.kind in {"gptmail", "moemail", "cloudflare_temp_email"} and not str(payload.api_key or "").strip():
+        raise HTTPException(status_code=400, detail="This mail provider requires an API key")
     timestamp = now_iso()
     credential_id = execute(
         """
-        INSERT INTO credentials (name, kind, api_key, base_url, prefix, domain, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO credentials (name, kind, api_key, base_url, prefix, domain, secret, extra_json, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload.name.strip(),
             payload.kind,
-            payload.api_key.strip(),
+            str(payload.api_key or "").strip(),
             (payload.base_url or "").strip() or None,
             (payload.prefix or "").strip() or None,
             (payload.domain or "").strip() or None,
+            (payload.secret or "").strip() or None,
+            extra_json,
             (payload.notes or "").strip() or None,
             timestamp,
             timestamp,
@@ -3542,11 +3877,11 @@ async def task_success_accounts(task_id: int, request: Request) -> JSONResponse:
 async def regenerate_task_success_account_oauth(task_id: int, payload: SuccessAccountOAuthRequest, request: Request) -> JSONResponse:
     require_authenticated(request)
     row = get_task(task_id)
-    accounts = dict(load_success_accounts(row))
     email = payload.email.strip()
-    password = accounts.get(email)
-    if not password:
+    account = find_success_account_record(row, email=email)
+    if account is None:
         raise HTTPException(status_code=404, detail="The specified success account was not found in this task")
+    password = str(account.get("password") or "").strip()
     result = regenerate_success_account_oauth_token(row, email, password)
     return JSONResponse(result)
 

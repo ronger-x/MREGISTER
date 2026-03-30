@@ -5,6 +5,7 @@
   "mail_prefix": "",
   "mail_domain": "",
   "mail_secret": "",
+  "mail_extra_json": "{}",
   "mail_timeout": 30,
   "mail_expiry_time": 3600000,
   "skymail_admin_email": "admin@example.com",

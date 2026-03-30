@@ -20,10 +20,12 @@ class RunContext:
     extra_args: list[str]
     extra_env: dict[str, str]
     mail_provider: str | None
-    gptmail_api_key: str | None
-    gptmail_base_url: str | None
-    gptmail_prefix: str | None
-    gptmail_domain: str | None
+    mail_api_key: str | None
+    mail_base_url: str | None
+    mail_prefix: str | None
+    mail_domain: str | None
+    mail_secret: str | None
+    mail_extra_json: str | None
 
 
 def _parse_bool(value: str | None, default: bool = True) -> bool:
@@ -62,8 +64,10 @@ def load_context() -> RunContext:
         extra_args=extra_args,
         extra_env=extra_env,
         mail_provider=os.environ.get("MAIL_PROVIDER", "").strip() or None,
-        gptmail_api_key=os.environ.get("GPTMAIL_API_KEY", "").strip() or None,
-        gptmail_base_url=os.environ.get("GPTMAIL_BASE_URL", "").strip() or None,
-        gptmail_prefix=os.environ.get("GPTMAIL_PREFIX", "").strip() or None,
-        gptmail_domain=os.environ.get("GPTMAIL_DOMAIN", "").strip() or None,
+        mail_api_key=os.environ.get("MAIL_API_KEY", "").strip() or os.environ.get("GPTMAIL_API_KEY", "").strip() or None,
+        mail_base_url=os.environ.get("MAIL_BASE_URL", "").strip() or os.environ.get("GPTMAIL_BASE_URL", "").strip() or None,
+        mail_prefix=os.environ.get("MAIL_PREFIX", "").strip() or os.environ.get("GPTMAIL_PREFIX", "").strip() or None,
+        mail_domain=os.environ.get("MAIL_DOMAIN", "").strip() or os.environ.get("GPTMAIL_DOMAIN", "").strip() or None,
+        mail_secret=os.environ.get("MAIL_SECRET", "").strip() or None,
+        mail_extra_json=os.environ.get("MAIL_EXTRA_JSON", "").strip() or None,
     )
