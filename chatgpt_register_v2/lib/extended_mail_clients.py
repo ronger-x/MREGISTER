@@ -235,6 +235,7 @@ class MailTmAdapter(BasePollingMailClient):
         self._create_lock = threading.Lock()
         self._rate_limited_until = 0.0
         self._domains: list[str] = []
+        self._private_domains: set[str] = set()
         self._domain_index = 0
         self._domain_failures: dict[str, int] = {}
         self._domain_cooldowns: dict[str, float] = {}
@@ -255,7 +256,7 @@ class MailTmAdapter(BasePollingMailClient):
     def _supports_optional_api_key(self) -> bool:
         return self.provider_name == "duckmail"
 
-    def _fetch_domains(self) -> list[str]:
+    def _fetch_domains(self) -> tuple[list[str], set[str]]:
         response = self.session.get(
             f"{self.api_base}/domains",
             headers=self._headers(use_api_key=self._supports_optional_api_key()),
@@ -267,34 +268,47 @@ class MailTmAdapter(BasePollingMailClient):
             items = payload
         else:
             items = payload.get("hydra:member") or payload.get("items") or []
-        domains = [
-            str(item.get("domain") or "").strip()
-            for item in items
-            if isinstance(item, dict)
-            and (
-                (
-                    self.provider_name == "duckmail"
-                    and item.get("isVerified", True)
-                )
-                or (
-                    self.provider_name != "duckmail"
-                    and item.get("isActive", True)
-                    and not item.get("isPrivate", False)
-                )
-            )
-        ]
+        domains: list[str] = []
+        private_domains: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            domain = str(item.get("domain") or "").strip()
+            if not domain:
+                continue
+            if self.provider_name == "duckmail":
+                if not item.get("isVerified", True):
+                    continue
+                owner_id = item.get("ownerId")
+                if owner_id not in (None, "", "null"):
+                    private_domains.add(domain)
+            else:
+                if not item.get("isActive", True) or item.get("isPrivate", False):
+                    continue
+            domains.append(domain)
         if not domains:
             raise RuntimeError("Mail.tm 未返回可用域名")
-        return domains
+        return domains, private_domains
 
     def _resolve_domain(self) -> str:
         with self._domain_lock:
             if not self._domains:
-                fetched_domains = self._fetch_domains()
+                fetched_domains, private_domains = self._fetch_domains()
+                self._private_domains = set(private_domains)
                 ordered_domains: list[str] = []
                 if self.domain and self.domain in fetched_domains:
                     ordered_domains.append(self.domain)
-                ordered_domains.extend(domain for domain in fetched_domains if domain not in ordered_domains)
+                if self.provider_name == "duckmail":
+                    ordered_domains.extend(
+                        domain for domain in fetched_domains
+                        if domain in self._private_domains and domain not in ordered_domains
+                    )
+                    ordered_domains.extend(
+                        domain for domain in fetched_domains
+                        if domain not in self._private_domains and domain not in ordered_domains
+                    )
+                else:
+                    ordered_domains.extend(domain for domain in fetched_domains if domain not in ordered_domains)
                 self._domains = ordered_domains
 
             now_ts = time.time()
@@ -318,8 +332,16 @@ class MailTmAdapter(BasePollingMailClient):
             if not available_domains:
                 raise RuntimeError("Mail.tm 未返回可用域名")
 
-            selected = available_domains[self._domain_index % len(available_domains)]
-            self._domain_index = (self._domain_index + 1) % max(1, len(available_domains))
+            if self.domain and self.domain in available_domains:
+                candidate_domains = [self.domain]
+            elif self.provider_name == "duckmail":
+                private_available = [domain for domain in available_domains if domain in self._private_domains]
+                candidate_domains = private_available or available_domains
+            else:
+                candidate_domains = available_domains
+
+            selected = candidate_domains[self._domain_index % len(candidate_domains)]
+            self._domain_index = (self._domain_index + 1) % max(1, len(candidate_domains))
             return selected
 
     @staticmethod
