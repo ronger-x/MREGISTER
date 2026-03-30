@@ -978,10 +978,14 @@ export function ConsoleApp() {
     });
   }
 
-  async function handleImportTaskToCpamc(task) {
-    await withBusy(`cpamc-import-${task.id}`, async () => {
+  async function handleImportTaskToCpamc(task, { force = false } = {}) {
+    const busyKey = force ? `cpamc-force-import-${task.id}` : `cpamc-import-${task.id}`;
+    await withBusy(busyKey, async () => {
       try {
-        const result = await api(`/api/tasks/${task.id}/cpamc-import`, { method: 'POST' });
+        const url = force
+          ? `/api/tasks/${task.id}/cpamc-import?force=1`
+          : `/api/tasks/${task.id}/cpamc-import`;
+        const result = await api(url, { method: 'POST' });
         await refreshState();
         const importedCount = Number(result.imported_count || 0);
         const skippedCount = Number(result.skipped_count || 0);
@@ -2084,6 +2088,18 @@ export function ConsoleApp() {
                       onClick={() => handleImportTaskToCpamc(visibleTask)}
                     >
                       {tr('cpamc_import_button')}
+                    </BusyButton>
+                  ) : null}
+                  {statePayload.cpamc?.enabled && statePayload.cpamc?.linked ? (
+                    <BusyButton
+                      type="button"
+                      className="ghost-btn"
+                      busy={isBusy(`cpamc-force-import-${visibleTask.id}`)}
+                      disabled={!visibleTask.cpamc_importable_count}
+                      title={!visibleTask.cpamc_importable_count ? tr('cpamc_import_disabled') : ''}
+                      onClick={() => handleImportTaskToCpamc(visibleTask, { force: true })}
+                    >
+                      {tr('cpamc_force_import_button')}
                     </BusyButton>
                   ) : null}
                 </div>

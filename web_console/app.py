@@ -359,6 +359,7 @@ UI_TRANSLATIONS = {
         "cpamc_status_disabled": "未启用",
         "cpamc_last_error": "最近错误：{value}",
         "cpamc_import_button": "导入到 CPAMC",
+        "cpamc_force_import_button": "强制导入到 CPAMC",
         "cpamc_import_disabled": "当前任务没有可导入的 JSON 文件",
         "cpamc_import_success": "已导入 {count} 个 JSON 文件到 CPAMC。",
         "cpamc_import_partial": "已导入 {success} 个，失败 {failed} 个。",
@@ -733,6 +734,7 @@ UI_TRANSLATIONS = {
         "cpamc_status_disabled": "Disabled",
         "cpamc_last_error": "Last error: {value}",
         "cpamc_import_button": "Import to CPAMC",
+        "cpamc_force_import_button": "Force import to CPAMC",
         "cpamc_import_disabled": "This task has no importable JSON files",
         "cpamc_import_success": "Imported {count} JSON file(s) to CPAMC.",
         "cpamc_import_partial": "Imported {success}, failed {failed}.",
@@ -1575,6 +1577,7 @@ def import_task_files_to_cpamc(
     task: sqlite3.Row | dict[str, Any],
     *,
     cpamc: dict[str, Any] | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     cpamc_settings = cpamc or get_cpamc_settings()
     if not cpamc_settings["enabled"]:
@@ -1599,10 +1602,11 @@ def import_task_files_to_cpamc(
             failed.append({"name": file_path.name, "error": str(exc)})
             continue
         fingerprint = build_cpamc_import_fingerprint(payload_bytes)
-        previous = import_statuses.get(file_path.name, {})
-        if previous.get("fingerprint") == fingerprint:
-            skipped.append(file_path.name)
-            continue
+        if not force:
+            previous = import_statuses.get(file_path.name, {})
+            if previous.get("fingerprint") == fingerprint:
+                skipped.append(file_path.name)
+                continue
         try:
             response = cpamc_request(
                 "POST",
@@ -3631,8 +3635,9 @@ async def rerun_task(task_id: int, request: Request) -> JSONResponse:
 async def import_task_to_cpamc(task_id: int, request: Request) -> JSONResponse:
     require_authenticated(request)
     task = get_task(task_id)
+    force = request.query_params.get("force") == "1"
     try:
-        result = import_task_files_to_cpamc(task)
+        result = import_task_files_to_cpamc(task, force=force)
     except RuntimeError as exc:
         message = str(exc)
         status_code = 400
