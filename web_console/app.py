@@ -2585,11 +2585,17 @@ def get_tasks() -> list[dict[str, Any]]:
     return [serialize_task(row) for row in fetch_all("SELECT * FROM tasks ORDER BY id DESC")]
 
 
-def dashboard_summary() -> dict[str, Any]:
-    tasks = get_tasks()
-    credentials = get_credentials()
-    proxies = get_proxies()
-    schedules = get_schedules()
+def dashboard_summary(
+    *,
+    tasks: list[dict[str, Any]] | None = None,
+    credentials: list[dict[str, Any]] | None = None,
+    proxies: list[dict[str, Any]] | None = None,
+    schedules: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    tasks = tasks if tasks is not None else get_tasks()
+    credentials = credentials if credentials is not None else get_credentials()
+    proxies = proxies if proxies is not None else get_proxies()
+    schedules = schedules if schedules is not None else get_schedules()
     return {
         "running_tasks": sum(1 for task in tasks if task["status"] in {"queued", "running", "stopping"}),
         "completed_tasks": sum(1 for task in tasks if task["status"] == "completed"),
@@ -3529,17 +3535,29 @@ supervisor = TaskSupervisor()
 
 
 def state_payload() -> dict[str, Any]:
+    defaults = get_defaults()
+    cpamc = get_cpamc_settings()
+    credentials = get_credentials()
+    proxies = get_proxies()
+    tasks = get_tasks()
+    schedules = get_schedules()
+    api_keys = get_api_keys()
     return {
         "platforms": PLATFORMS,
         "browser_automation_templates": BROWSER_AUTOMATION_TEMPLATES,
-        "defaults": get_defaults(),
-        "cpamc": get_cpamc_settings(),
-        "credentials": get_credentials(),
-        "proxies": get_proxies(),
-        "tasks": get_tasks(),
-        "schedules": get_schedules(),
-        "api_keys": get_api_keys(),
-        "dashboard": dashboard_summary(),
+        "defaults": defaults,
+        "cpamc": cpamc,
+        "credentials": credentials,
+        "proxies": proxies,
+        "tasks": tasks,
+        "schedules": schedules,
+        "api_keys": api_keys,
+        "dashboard": dashboard_summary(
+            tasks=tasks,
+            credentials=credentials,
+            proxies=proxies,
+            schedules=schedules,
+        ),
         "max_concurrent_tasks": MAX_CONCURRENT_TASKS,
         "server_now": now_iso(),
     }
