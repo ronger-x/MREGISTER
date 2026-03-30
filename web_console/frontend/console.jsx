@@ -83,6 +83,13 @@ function normalizeStatePayload(payload) {
   };
 }
 
+function normalizeTaskDetailPayload(payload) {
+  if (!payload || typeof payload !== 'object' || !payload.task || typeof payload.task !== 'object') {
+    return null;
+  }
+  return payload.task;
+}
+
 function BrowserAutomationTemplateFields({ template, values, onChange }) {
   if (!template) {
     return null;
@@ -561,8 +568,12 @@ export function ConsoleApp() {
     const loadTaskDetail = async ({ suppressError = false } = {}) => {
       try {
         const result = await api(`/api/tasks/${selectedTaskId}`);
+        const nextTask = normalizeTaskDetailPayload(result);
         if (!disposed) {
-          setTaskDetail(result.task || null);
+          setTaskDetail(nextTask);
+          if (!nextTask && !suppressError) {
+            setLoadError(tr('request_failed'));
+          }
         }
       } catch (error) {
         if (!disposed) {
